@@ -46,7 +46,7 @@ The 32GB profile allows two local child workers and raises configured context/ou
 ## Recovery and removal
 
 - Inspect `%USERPROFILE%\.automaton\logs\agent.log`, confirm Ollama is running, then check `ollama list`.
-- Create and verify a consistent database/configuration archive with the Windows helper below. The database backup uses SQLite's online backup API so it can be taken while the agent runs. The ZIP contains private configuration and is not encrypted; keep it in a user-private location. Wallet files and the dashboard token are intentionally not included.
+- Create and verify an encrypted database/configuration archive with the Windows helper below. The helper prompts for a passphrase; store it separately because it is never saved and cannot be recovered. The SQLite online backup API allows a consistent snapshot while the agent runs. Wallet files and the dashboard token are intentionally not included.
 - To remove the project, remove the scheduled task and delete the cloned repository. Agent data is stored separately.
 
 ### Windows data backup and restore
@@ -55,16 +55,16 @@ From the repository folder in PowerShell, run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-restore.ps1 -Action backup
-powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-restore.ps1 -Action verify -BackupPath "$env:USERPROFILE\SurviveOrDieBackups\survive-or-die-YYYYMMDD-HHmmss.zip"
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-restore.ps1 -Action verify -BackupPath "$env:USERPROFILE\SurviveOrDieBackups\survive-or-die-YYYYMMDD-HHmmss.sodbackup"
 ```
 
-Backups contain `state.db`, `automaton.json`, SHA-256 checksums and a SQLite integrity check. Restore requires the agent to be stopped; it verifies the archive first and preserves a consistent pre-restore database and configuration alongside the originals before replacement:
+Backups contain `state.db`, `automaton.json`, SHA-256 checksums and a SQLite integrity check inside an AES-256-GCM authenticated encrypted envelope. Use a passphrase of at least 12 characters and keep it separately; a lost passphrase means the backup cannot be restored. Restore requires the agent to be stopped; it authenticates and verifies the archive before extraction, only replaces the currently configured database path, keeps pre-restore database/configuration copies and journals replacement so a later invocation can recover an interrupted restore. Existing legacy plaintext ZIPs can still be verified, but restore requires typing `RESTORE-UNENCRYPTED` after the warning:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-restore.ps1 -Action restore -BackupPath "C:\Users\YOURNAME\SurviveOrDieBackups\your-backup.zip"
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-restore.ps1 -Action restore -BackupPath "C:\Users\YOURNAME\SurviveOrDieBackups\your-backup.sodbackup"
 ```
 
-The Windows PowerShell parser CI job includes this script, but neither the script nor database recovery has been run on the target laptop yet.
+The encryption helper is part of the project build; run `pnpm build` after installing dependencies. The Windows PowerShell parser CI job includes this script, but neither the script nor database recovery has been run on the target laptop yet. Test with a disposable profile before relying on it for recovery.
 ## 6. Private Android dashboard (optional)
 
 The runtime starts an authenticated dashboard on `http://127.0.0.1:41555` by default. It binds only to this computer. On the laptop, copy the owner token from `%USERPROFILE%\.automaton\dashboard-token` using a private method, then install and sign in to Tailscale on both the laptop and Android phone. In a PowerShell window on the laptop, run:
