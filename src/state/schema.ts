@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 13;
+export const SCHEMA_VERSION = 14;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -753,6 +753,33 @@ export const MIGRATION_V13 = `
     created_at TEXT NOT NULL
   );
   CREATE INDEX idx_business_actuals_opportunity ON business_opportunity_actuals(opportunity_id, created_at DESC);
+`;
+
+export const MIGRATION_V14 = `
+  -- Schema version: 14. Draft-only self-improvement proposals. No executor consumes approval.
+  CREATE TABLE self_improvement_proposals (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    proposed_files TEXT NOT NULL,
+    diff_preview TEXT NOT NULL,
+    diff_hash TEXT NOT NULL,
+    verification_status TEXT NOT NULL DEFAULT 'not_run'
+      CHECK(verification_status IN ('not_run','passed','failed')),
+    verification_summary TEXT NOT NULL DEFAULT 'Not run: no isolated execution sandbox is available.',
+    approval_request_id TEXT NOT NULL REFERENCES owner_approval_requests(id),
+    status TEXT NOT NULL DEFAULT 'pending_review'
+      CHECK(status IN ('pending_review','approved_for_manual_activation','rejected','expired')),
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    reviewed_by TEXT,
+    reviewed_at TEXT,
+    review_note TEXT
+  );
+  CREATE UNIQUE INDEX idx_self_improvement_pending_hash
+    ON self_improvement_proposals(diff_hash) WHERE status = 'pending_review';
+  CREATE INDEX idx_self_improvement_status ON self_improvement_proposals(status, created_at DESC);
 `;
 
 export const MIGRATION_V10 = `

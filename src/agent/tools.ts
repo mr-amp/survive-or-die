@@ -406,6 +406,46 @@ export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
 
     // ── Self-Modification Tools ──
     {
+      name: "propose_self_improvement",
+      description:
+        "Submit a draft source-code improvement for owner review. The proposal is stored in SQLite and linked to an exact software-change approval request. It never writes to the live checkout or runs proposed code; verification stays not-run until a separate isolated sandbox exists.",
+      category: "self_mod",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Short improvement title" },
+          rationale: { type: "string", description: "Problem, expected benefit and risk" },
+          files: {
+            type: "array",
+            maxItems: 12,
+            description: "Proposed file replacements; restricted to safe repository paths and stored as inactive drafts",
+            items: {
+              type: "object",
+              properties: {
+                path: { type: "string", description: "Repository-relative path" },
+                content: { type: "string", description: "Complete proposed file text" },
+              },
+              required: ["path", "content"],
+            },
+          },
+        },
+        required: ["title", "rationale", "files"],
+      },
+      execute: async (args, ctx) => {
+        const { createSelfImprovementProposal } = await import("../self-mod/proposals.js");
+        const requesterId = ctx.identity.address || "local-agent";
+        const proposal = createSelfImprovementProposal(ctx.db.raw, {
+          title: args.title as string,
+          rationale: args.rationale as string,
+          files: args.files as Array<{ path: string; content: string }>,
+          requesterId,
+          requesterKind: requesterId.startsWith("local://") ? "child" : "agent",
+        });
+        return `Draft proposal ${proposal.id} recorded for owner review. Diff hash: ${proposal.diffHash}. Verification: ${proposal.verificationStatus}. Approval records review only; this proposal is not activated and has not been executed.`;
+      },
+    },
+    {
       name: "edit_own_file",
       description:
         "Edit a file in your own codebase. Changes are audited, rate-limited, and safety-checked. Some files are protected.",

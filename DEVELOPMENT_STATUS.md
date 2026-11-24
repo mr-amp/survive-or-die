@@ -13,6 +13,7 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 - Solana USDC balance reads use bounded JSON-RPC with address/account validation and timeouts; the large SDK is no longer needed for that one lookup.
 - Dependency remediation removed unused `simple-git` and `gray-matter`, removed `@solana/web3.js` after replacing its one runtime use, updated the development test/build toolchain, and added only scoped compatible transitive overrides.
 - Persistent business opportunity pipeline (schema v13): the agent can save opportunity hypotheses with customer problem, value proposition, evidence/competitor notes, source links, estimated GBP pence, confidence, forecast horizon and risks. The authenticated owner dashboard lists these, advances the review lifecycle, and records owner-reported actual income/expenses separately with idempotency and audit events. No sources are fetched or asserted as verified; no payments, customer contact, publication, account creation or commercial commitments are performed.
+- Draft-only self-improvement proposal lifecycle (schema v14): agent proposals store complete candidate file text, bounded source diffs, content hash, rationale, expiry and verification state, and create an exact software-change owner approval request. Protected/security files, traversal paths, symlink escapes, generated/private directories, and size excess are rejected. The authenticated dashboard can approve or reject a review and the approval history is linked. Approval remains review-only: no candidate code is executed, copied to the live tree or activated.
 
 ## Verified in this checkpoint
 
@@ -23,6 +24,7 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 - `pnpm audit --audit-level=low` and `pnpm audit --prod --audit-level=low` report no known vulnerabilities for the current lockfile.
 - `git diff --check` passed after the final status-file addition.
 - Business pipeline implementation: `pnpm run typecheck`, `pnpm run build`, and the focused business-opportunity, dashboard, policy-engine and approval integration tests passed (13 tests in the latest focused run). Persistence, agent tool registration, transition guards, source URL validation, owner-only actual ledger entries, idempotent retry behavior and accurate totals beyond the bounded history view are covered. The dashboard HTTP routes were not exercised end-to-end.
+- Combined business-pipeline and self-improvement proposal checks: typecheck and production build passed, the dashboard inline JavaScript passed `node --check`, and five focused business, proposal, dashboard and approval test files passed (17 tests). Proposal tests verify approval binding, persisted drafts, no live-file writes, protected-path rejection, expiry and safe resubmission after expiry.
 
 ## Security audit resolution
 
@@ -46,12 +48,13 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 - Actual Windows setup, startup/recovery, Ollama model loading, Android remote access and backup/restore on the target HP laptop.
 - Local inference quality, sustained 16GB/32GB resource use and child-worker recovery after a real process restart.
 - Approval execution and pre-execution revalidation. The current design is intentionally audit-only and fails closed.
+- Self-improvement workspace isolation, automated verification, rollback and activation. Proposal contents stay in the SQLite proposal record and are review-only; no untrusted code is run.
 
 ## Outstanding development
 
 - Obtain an Actions run and fix any verified CI failures; determine or enable repository workflow permissions through GitHub owner settings if required.
 - Repeat dependency audits as part of CI and review future transitive changes. The prior lockfile had 46 advisories (5 critical, 18 high, 21 moderate, 2 low); the current lockfile audit returns none at low severity or higher.
-- Build isolated self-improvement workspaces, diff/test proposal review, approval-gated activation and rollback. Current protections do not constitute that complete proposal lifecycle.
+- Add an OS-isolated proposal workspace and sandboxed test runner, persist real test results, then implement owner-approved activation/rollback. Current proposals are stored separately in SQLite, but are not copied into a workspace; code has not been tested or activated.
 - Extend opportunity items into evidence-backed tasks and business experiments; current source links are recorded only and all forecasts are hypotheses.
 - Add full dashboard workflows for persistent goals, resource history and self-improvement proposals.
 - Extend persistent worker identities, bounded delegation and parent/child progress/result messaging.
@@ -76,7 +79,8 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 6. Test the 16GB profile before using parallel workers; after a RAM upgrade, explicitly test the 32GB profile and resource limits.
 7. Test backup, restore, crash restart, safe update and uninstall before calling the installation ready.
 8. In the authenticated dashboard, submit an opportunity through the agent tool; verify stage changes persist after restart, estimates remain marked unverified, and owner-entered actuals are idempotent and do not trigger payments.
+9. Verify self-improvement proposals remain draft-only, approval decisions are linked to exact proposal hashes, and no approval applies code. Workspace isolation, test execution and activation require a later hardened implementation and Windows acceptance review.
 
 ## Checkpoint
 
-Previous verified remote head before this batch: `2061c829f2ecd85e87f7b664388f53d38134c3a3`. The business opportunity pipeline is committed on `work/local-first-windows` as `41f8fd9a4f0e042bdf670d1e7fc3633638c7d634`; GitHub confirmed that commit is the current remote branch head. `main` remains untouched.
+Previous verified remote head before the self-improvement batch: `9e9717b747680efb99afff93690d2e2f8d3c3a7e`. The business opportunity pipeline and its checkpoint are on the remote development branch. Self-improvement proposals are currently an uncommitted batch. `main` remains untouched.
