@@ -40,7 +40,7 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 ## Known issues and external blockers
 
 - The full test run was not completed: automatic tool review blocked the run after an integration test attempted an outbound request to `taskmarket.dev`. The test was not bypassed or retried through another path.
-- GitHub reports no workflow runs and no commit statuses for the development branch. The available GitHub connector did not expose repository Actions settings, so the cause (disabled Actions, permissions, or an untriggered run) remains unverified.
+- The available GitHub connector returned no PR-triggered workflow runs for the checked commit and no commit statuses. Its run lookup does not expose push-triggered runs or repository Actions settings, so the cause of the earlier missing CI evidence remains unverified.
 - PowerShell (`pwsh`) and a Windows runner are unavailable in this workspace.
 - `pnpm build` emits a warning that `pnpm.onlyBuiltDependencies` in `package.json` is no longer read by pnpm 10; move this configuration to the supported workspace settings in a separately reviewed change.
 - Target laptop and Android private-network access are not available for acceptance testing in this session.
