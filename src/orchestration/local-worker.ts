@@ -143,6 +143,7 @@ export class LocalWorkerPool {
       budget: createBudgetFromTask(task),
       wisdom: buildWisdomFromGoal(this.config.db, task.goalId, workspace),
       abortSignal: signal,
+      onProgress: (stage, message) => this.recordProgress(workerId, stage, message),
       goalId: task.goalId,
       toolCatalog: this.config.tools,
       toolContext: this.config.toolContext
@@ -265,6 +266,10 @@ export class LocalWorkerPool {
     this.config.db.prepare(
       "INSERT INTO local_worker_events (id, worker_id, event_type, message, details_json, created_at) VALUES (?, ?, ?, ?, ?, ?)",
     ).run(ulid(), workerId, event, message.slice(0, 1000), JSON.stringify(details).slice(0, 100_000), new Date().toISOString());
+    this.config.db.prepare(
+      `DELETE FROM local_worker_events WHERE worker_id = ? AND id NOT IN
+       (SELECT id FROM local_worker_events WHERE worker_id = ? ORDER BY created_at DESC, id DESC LIMIT 100)`,
+    ).run(workerId, workerId);
   }
 }
 

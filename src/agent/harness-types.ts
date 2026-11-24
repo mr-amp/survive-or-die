@@ -46,6 +46,7 @@ export interface HarnessContext {
   budget: IterationBudget;
   wisdom: AccumulatedWisdom;
   abortSignal: AbortSignal;
+  onProgress?: (stage: string, message: string) => void;
   goalId: string;
   toolCatalog?: AutomatonTool[];
   toolContext?: ToolContext;

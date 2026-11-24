@@ -184,6 +184,8 @@ describe("orchestration/LocalWorkerPool harness integration", () => {
     expect(worker).toMatchObject({ status: "completed", progress_stage: "completed" });
     expect(JSON.parse(worker.result_json)).toMatchObject({ output: "completed by harness" });
     expect((db.prepare("SELECT COUNT(*) AS n FROM local_worker_events WHERE worker_id = ?").get("worker-test") as any).n).toBeGreaterThanOrEqual(4);
+    for (let index = 0; index < 110; index += 1) (pool as any).appendWorkerEvent("worker-test", "progress", `bounded report ${index}`);
+    expect((db.prepare("SELECT COUNT(*) AS n FROM local_worker_events WHERE worker_id = ?").get("worker-test") as any).n).toBe(100);
     expect(SuccessHarness.capturedContext?.budget.maxTurns).toBe(7);
     expect(SuccessHarness.capturedContext?.allowedEditRoot).toBe(process.cwd());
   });
@@ -372,6 +374,9 @@ describe("orchestration/LocalWorkerPool harness integration", () => {
     const row = getTaskById(db, task.id);
     expect(row?.status).toBe("completed");
     expect(row?.result).toMatchObject({ success: true, output: "Delegated the planner-backed work." });
+    const workerProgress = db.prepare("SELECT message FROM local_worker_events WHERE worker_id = 'worker-test' AND event_type = 'progress'").all() as Array<{ message: string }>;
+    expect(workerProgress.some((event) => event.message.includes("Turn 1/50"))).toBe(true);
+    expect(workerProgress.some((event) => event.message.includes("Running tool: delegate_task"))).toBe(true);
 
     const delegated = db.prepare(
       "SELECT parent_id AS parentId, title, agent_role AS agentRole FROM task_graph WHERE goal_id = ? AND parent_id = ?",

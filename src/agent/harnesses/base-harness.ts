@@ -113,6 +113,10 @@ export abstract class BaseHarness implements AgentHarness {
 
       let response: { content: string; toolCalls?: InferenceToolCall[] };
       try {
+        this.context.onProgress?.(
+          "thinking",
+          `Turn ${this.context.budget.turnsUsed + 1}/${this.context.budget.maxTurns}: requesting a model response.`,
+        );
         response = await this.context.inference.chat({
           tier: "fast",
           messages: this.messages,
@@ -136,6 +140,12 @@ export abstract class BaseHarness implements AgentHarness {
 
       this.beforeTurn();
       this.context.budget.turnsUsed++;
+      this.context.onProgress?.(
+        response.toolCalls?.length ? "acting" : "summarizing",
+        response.toolCalls?.length
+          ? `Model selected ${response.toolCalls.length} tool action(s) on turn ${this.context.budget.turnsUsed}.`
+          : `Model returned a task summary on turn ${this.context.budget.turnsUsed}.`,
+      );
       logger.info(
         `[${this.id}] Turn ${this.context.budget.turnsUsed}/${this.context.budget.maxTurns} — task: ${this.task.title.slice(0, 60)}`,
       );
@@ -174,6 +184,7 @@ export abstract class BaseHarness implements AgentHarness {
             logger.warn(`[${this.id}] Unknown tool: ${toolCall.function.name}`);
           } else {
             try {
+              this.context.onProgress?.("tool", `Running tool: ${tool.name}.`);
               const args = typeof toolCall.function.arguments === "string"
                 ? JSON.parse(toolCall.function.arguments)
                 : toolCall.function.arguments;
@@ -206,9 +217,11 @@ export abstract class BaseHarness implements AgentHarness {
                   success: parsedArgs.success !== false,
                 };
               }
+              this.context.onProgress?.("tool_result", `Tool finished: ${tool.name}.`);
             } catch (error) {
               output = `Error executing ${toolCall.function.name}: ${error instanceof Error ? error.message : String(error)}`;
               logger.error(`[${this.id}] Tool error: ${output}`);
+              this.context.onProgress?.("tool_error", `Tool failed: ${toolCall.function.name}.`);
             }
           }
 
