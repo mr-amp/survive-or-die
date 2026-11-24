@@ -17,7 +17,7 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 - `pnpm run typecheck` passed.
 - `pnpm run build` passed.
 - Six focused test files passed: 108 tests covering approval storage, denied-tool integration, dashboard input guards, path protection and tool security.
-- `git diff --check` passed before the final status-file addition.
+- `git diff --check` passed after the final status-file addition.
 
 ## Unverified implementations
 
@@ -57,4 +57,4 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 
 ## Checkpoint
 
-At the start of this work, the verified remote branch head was `7a569ca60d3138efb795a2f13a57e4371e3cc294`. The current changes are pending commit until reviewed and pushed; update this checkpoint with the verified commit after that step.
+At the start of this work, the verified remote branch head was `7a569ca60d3138efb795a2f13a57e4371e3cc294`. The approval and hardening batch is committed to `work/local-first-windows` as `c5c008fe1ff51e3b831b58823cbf6e2dd1329ef3`; this status-file correction follows that code commit.
