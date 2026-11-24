@@ -13,6 +13,7 @@ import { createPathProtectionRules } from "./path-protection.js";
 import { createFinancialRules } from "./financial.js";
 import { createAuthorityRules } from "./authority.js";
 import { createRateLimitRules } from "./rate-limits.js";
+import { createOwnerApprovalRule } from "./owner-approval.js";
 
 /**
  * Create the default set of policy rules.
@@ -20,12 +21,14 @@ import { createRateLimitRules } from "./rate-limits.js";
  */
 export function createDefaultRules(
   treasuryPolicy: TreasuryPolicy = DEFAULT_TREASURY_POLICY,
+  options: { requireOwnerApproval?: boolean } = {},
 ): PolicyRule[] {
   return [
     ...createValidationRules(),
     ...createCommandSafetyRules(),
     ...createPathProtectionRules(),
     ...createFinancialRules(treasuryPolicy),
+    ...(options.requireOwnerApproval ? [createOwnerApprovalRule()] : []),
     ...createAuthorityRules(),
     ...createRateLimitRules(),
   ];
