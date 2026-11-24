@@ -77,6 +77,10 @@ export interface AutomatonConfig {
   localOnly?: boolean;
   /** Local memory/concurrency preset; defaults to the conservative 16GB profile. */
   localProfile?: "16gb" | "32gb";
+  /** Enable the private loopback-only owner dashboard unless explicitly disabled. */
+  dashboardEnabled?: boolean;
+  /** Local dashboard port. The server always binds to loopback. */
+  dashboardPort?: number;
   /** Chain type for this automaton. Defaults to "evm" if absent. */
   chainType?: ChainType;
 }
@@ -94,6 +98,8 @@ export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
   maxTurnsPerCycle: 25,
   childSandboxMemoryMb: 1024,
   socialRelayUrl: "https://social.conway.tech",
+  dashboardEnabled: true,
+  dashboardPort: 41555,
 };
 
 // ─── Agent State ─────────────────────────────────────────────────

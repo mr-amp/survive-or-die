@@ -48,4 +48,14 @@ The 32GB profile allows two local child workers and raises configured context/ou
 - Inspect `%USERPROFILE%\.automaton\logs\agent.log`, confirm Ollama is running, then check `ollama list`.
 - Stop the agent before copying `state.db`. Keep the backup outside `.automaton`; SQLite can use journal/WAL files while active.
 - To remove the project, remove the scheduled task and delete the cloned repository. Agent data is stored separately.
-- No Android dashboard or remote-control listener is included yet. Keep the Windows firewall closed to this application; remote access needs an authenticated dashboard and private tunnel before it can be enabled.
+## 6. Private Android dashboard (optional)
+
+The runtime starts an authenticated dashboard on `http://127.0.0.1:41555` by default. It binds only to this computer. On the laptop, copy the owner token from `%USERPROFILE%\.automaton\dashboard-token` using a private method, then install and sign in to Tailscale on both the laptop and Android phone. In a PowerShell window on the laptop, run:
+
+```powershell
+tailscale serve 41555
+```
+
+Use the HTTPS `*.ts.net` address printed by Tailscale on the phone. Enter the owner token on the dashboard. Keep that PowerShell window open while using the private link; press Ctrl+C to stop the Serve proxy. Keep Tailscale access restricted to your own devices and do not run `tailscale funnel`, which would make a service public. The dashboard itself still requires the owner token. Do not share the token or commit it to Git.
+
+The dashboard shows runtime status, goals/tasks, recent activity, resource usage, memory, child agents, financial records and blocked approval-required actions. It can pause/resume or stop the local runtime and update the local Ollama model/resource profile; model/profile changes require an agent restart. The dashboard does not execute owner approvals, payments, cloud provisioning, child termination or code changes. If Ollama is unavailable, model selection displays a warning and the agent remains subject to local-mode startup checks.

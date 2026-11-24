@@ -33,6 +33,7 @@ import { createDefaultRules } from "./agent/policy-rules/index.js";
 import type { AutomatonIdentity, AgentState, Skill, SocialClientInterface } from "./types.js";
 import { DEFAULT_TREASURY_POLICY } from "./types.js";
 import { createLogger, setGlobalLogLevel, StructuredLogger } from "./observability/logger.js";
+import { startDashboardServer } from "./dashboard/server.js";
 import { prettySink } from "./observability/pretty-sink.js";
 import { randomUUID } from "crypto";
 import { keccak256, toHex } from "viem";
@@ -396,13 +397,31 @@ async function run(): Promise<void> {
   logger.info(`[${new Date().toISOString()}] Heartbeat daemon started.`);
 
   // Handle graceful shutdown
+  let emergencyStopRequested = false;
+  let dashboard: ReturnType<typeof startDashboardServer> | undefined;
   const shutdown = () => {
     logger.info(`[${new Date().toISOString()}] Shutting down...`);
+    dashboard?.close();
     heartbeat.stop();
     db.setAgentState("sleeping");
     db.close();
     process.exit(0);
   };
+
+  if (config.dashboardEnabled !== false) {
+    try {
+      dashboard = startDashboardServer({
+        db,
+        config,
+        onEmergencyStop: () => {
+          emergencyStopRequested = true;
+          insertWakeEvent(db.raw, "dashboard", "Emergency stop requested by owner");
+        },
+      });
+    } catch (error) {
+      logger.error("Private dashboard failed to start; the agent will continue without it.", error instanceof Error ? error : undefined);
+    }
+  }
 
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
@@ -412,6 +431,15 @@ async function run(): Promise<void> {
   // The heartbeat can wake it up.
 
   while (true) {
+    if (emergencyStopRequested || db.getKV("dashboard_stop_requested") === "true") {
+      shutdown();
+      return;
+    }
+    if (db.getKV("dashboard_pause_requested") === "true") {
+      db.setAgentState("sleeping");
+      await sleep(1_000);
+      continue;
+    }
     try {
       // Reload skills (may have changed since last loop)
       try {
@@ -441,6 +469,11 @@ async function run(): Promise<void> {
           );
         },
       });
+
+      if (emergencyStopRequested || db.getKV("dashboard_stop_requested") === "true") {
+        shutdown();
+        return;
+      }
 
       // Agent loop exited (sleeping or dead)
       const state = db.getAgentState();

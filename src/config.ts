@@ -166,5 +166,7 @@ export function createConfig(params: {
     chainType: params.chainType || "evm",
     localOnly: params.localOnly ?? false,
     localProfile: params.localProfile || "16gb",
+    dashboardEnabled: true,
+    dashboardPort: 41555,
   };
 }

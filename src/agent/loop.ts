@@ -334,6 +334,18 @@ export async function runAgentLoop(
   };
 
   while (running) {
+    if (db.getKV("dashboard_stop_requested") === "true") {
+      log(config, "[DASHBOARD] Emergency stop requested; ending the current agent cycle.");
+      running = false;
+      break;
+    }
+    if (db.getKV("dashboard_pause_requested") === "true") {
+      db.setAgentState("sleeping");
+      onStateChange?.("sleeping");
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      continue;
+    }
+
     // Declared outside try so the catch block can access for retry/failure handling
     let claimedMessages: InboxMessageRow[] = [];
 
