@@ -79,4 +79,4 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 
 ## Checkpoint
 
-Previous verified remote head before this batch: `2061c829f2ecd85e87f7b664388f53d38134c3a3`. The business pipeline is implemented locally and not yet committed. Remote status must be checked after pushing the reviewed batch.
+Previous verified remote head before this batch: `2061c829f2ecd85e87f7b664388f53d38134c3a3`. The business opportunity pipeline is committed on `work/local-first-windows` as `41f8fd9a4f0e042bdf670d1e7fc3633638c7d634`; GitHub confirmed that commit is the current remote branch head. `main` remains untouched.
