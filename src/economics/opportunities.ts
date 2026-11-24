@@ -146,6 +146,12 @@ function rowToOpportunity(row: any, actualRows: any[], allActuals?: { income: nu
   };
 }
 
+function hydrateOpportunity(db: Database.Database, row: any): BusinessOpportunity {
+  const actuals = db.prepare("SELECT id,kind,amount_cents,external_reference,description,entered_by,created_at FROM business_opportunity_actuals WHERE opportunity_id = ? ORDER BY created_at DESC LIMIT 100").all(row.id) as any[];
+  const totals = Object.fromEntries((db.prepare("SELECT kind, SUM(amount_cents) AS total FROM business_opportunity_actuals WHERE opportunity_id = ? GROUP BY kind").all(row.id) as Array<{ kind: string; total: number }>).map((entry) => [entry.kind, Number(entry.total)]));
+  return rowToOpportunity(row, actuals, { income: totals.income || 0, expense: totals.expense || 0 });
+}
+
 export function createBusinessOpportunity(db: Database.Database, input: OpportunityInput, createdBy: string, now = new Date()): BusinessOpportunity {
   const actor = text(createdBy, "Creator", 160);
   const title = text(input.title, "Title", 160);
@@ -168,9 +174,26 @@ export function createBusinessOpportunity(db: Database.Database, input: Opportun
   });
   const estimatedCostCents = cents(input.estimatedCostCents, "Estimated cost");
   const estimatedRevenueCents = cents(input.estimatedRevenueCents, "Estimated revenue");
-  const id = ulid();
   const timestamp = now.toISOString();
   const transaction = db.transaction(() => {
+    // Repeated reasoning cycles often submit the same opportunity again. Return
+    // an existing active record rather than filling the owner queue with clones.
+    // Terminal opportunities remain available as historical records and may be
+    // reconsidered later as a new proposal.
+    const duplicate = db.prepare(`SELECT * FROM business_opportunities
+      WHERE title = ? AND customer_segment = ? AND customer_problem = ?
+        AND value_proposition = ? AND evidence_summary = ? AND competitor_summary = ?
+        AND evidence_urls = ? AND estimated_cost_cents IS ? AND estimated_revenue_cents IS ?
+        AND forecast_days = ? AND confidence = ? AND risks = ?
+        AND status NOT IN ('completed','rejected')
+      ORDER BY updated_at DESC LIMIT 1`).get(
+      title, customerSegment, customerProblem, valueProposition, evidenceSummary,
+      competitorSummary, JSON.stringify(safeUrls), estimatedCostCents, estimatedRevenueCents,
+      input.forecastDays, input.confidence, risks,
+    ) as any;
+    if (duplicate) return duplicate;
+
+    const id = ulid();
     db.prepare(`INSERT INTO business_opportunities
       (id,title,customer_segment,customer_problem,value_proposition,evidence_summary,competitor_summary,evidence_urls,estimated_cost_cents,estimated_revenue_cents,forecast_days,confidence,risks,status,created_by,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?, ?,?,'discovered',?,?,?)`).run(
@@ -182,18 +205,13 @@ export function createBusinessOpportunity(db: Database.Database, input: Opportun
       .run(ulid(), id, actor, JSON.stringify({ evidenceUrls: safeUrls.length, estimatesAreUnverified: true }), timestamp);
     return db.prepare("SELECT * FROM business_opportunities WHERE id = ?").get(id) as any;
   });
-  return rowToOpportunity(transaction(), []);
+  return hydrateOpportunity(db, transaction());
 }
 
 export function listBusinessOpportunities(db: Database.Database, limit = 50): BusinessOpportunity[] {
   const bounded = Math.max(1, Math.min(100, Math.floor(limit)));
   const rows = db.prepare("SELECT * FROM business_opportunities ORDER BY CASE status WHEN 'completed' THEN 1 WHEN 'rejected' THEN 2 ELSE 0 END, updated_at DESC LIMIT ?").all(bounded) as any[];
-  const actualQuery = db.prepare("SELECT id,kind,amount_cents,external_reference,description,entered_by,created_at FROM business_opportunity_actuals WHERE opportunity_id = ? ORDER BY created_at DESC LIMIT 100");
-  const totalsQuery = db.prepare("SELECT kind, SUM(amount_cents) AS total FROM business_opportunity_actuals WHERE opportunity_id = ? GROUP BY kind");
-  return rows.map((row) => {
-    const totals = Object.fromEntries((totalsQuery.all(row.id) as Array<{ kind: string; total: number }>).map((entry) => [entry.kind, Number(entry.total)]));
-    return rowToOpportunity(row, actualQuery.all(row.id) as any[], { income: totals.income || 0, expense: totals.expense || 0 });
-  });
+  return rows.map((row) => hydrateOpportunity(db, row));
 }
 
 /** Actuals are the owner-entered opportunity ledger. Forecast totals remain separate and unverified. */

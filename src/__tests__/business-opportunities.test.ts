@@ -74,6 +74,32 @@ describe("persistent business opportunity pipeline", () => {
     expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_opportunity_events WHERE opportunity_id = ?").get(opportunity.id)).toEqual({ count: 3 });
   });
 
+  it("returns the existing active record for an exact repeated opportunity proposal", () => {
+    const db = makeDb();
+    const proposal = {
+      title: "Local repair tracker", customerSegment: "Small parks",
+      customerProblem: "Repair history is hard to find", valueProposition: "Searchable records",
+      evidenceSummary: "Unverified owner hypothesis", competitorSummary: "Not researched",
+      evidenceUrls: ["https://example.test/repairs"], estimatedCostCents: 1000,
+      estimatedRevenueCents: 3000, forecastDays: 60, confidence: 0.1, risks: "Demand unknown",
+    };
+    const first = createBusinessOpportunity(db.raw, proposal, "local-agent");
+    recordBusinessActual(db.raw, {
+      opportunityId: first.id, kind: "expense", amountCents: 250,
+      description: "Owner reported test cost", idempotencyKey: "dedupe-actual",
+    });
+
+    const retry = createBusinessOpportunity(db.raw, proposal, "local-agent");
+    expect(retry.id).toBe(first.id);
+    expect(retry.actualExpenseCents).toBe(250);
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_opportunities").get()).toEqual({ count: 1 });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_opportunity_events WHERE opportunity_id = ?").get(first.id)).toEqual({ count: 2 });
+
+    const changed = createBusinessOpportunity(db.raw, { ...proposal, evidenceSummary: "New evidence review still pending" }, "local-agent");
+    expect(changed.id).not.toBe(first.id);
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_opportunities").get()).toEqual({ count: 2 });
+  });
+
   it("rejects unsafe sources, invalid transitions, non-owner actuals and idempotency-key reuse", () => {
     const db = makeDb();
     const base = {
