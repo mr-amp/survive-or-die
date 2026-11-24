@@ -38,6 +38,19 @@ describe("authenticated dashboard business workflow", () => {
       const unauthenticated = await fetch(`${base}/api/experiments`);
       expect(unauthenticated.status).toBe(401);
       const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+      db.raw.prepare("INSERT INTO goals (id, title, description, status, created_at) VALUES ('worker-goal', 'Worker goal', 'Review workers', 'active', datetime('now'))").run();
+      db.raw.prepare(`INSERT INTO task_graph (id, goal_id, title, description, status, assigned_to, agent_role, created_at)
+        VALUES ('worker-task', 'worker-goal', 'Inspect local worker history', 'Read persisted worker status', 'completed', 'local://worker-1', 'researcher', datetime('now'))`).run();
+      db.raw.prepare(`INSERT INTO local_worker_runs
+        (id, task_id, name, address, role, status, progress_stage, progress_message, result_json, created_at, started_at, finished_at, updated_at)
+        VALUES ('worker-1', 'worker-task', 'worker-researcher-1', 'local://worker-1', 'researcher', 'completed', 'completed', 'Collected a local result', '{"success":true,"output":"Review-ready result"}', datetime('now'), datetime('now'), datetime('now'), datetime('now'))`).run();
+      db.raw.prepare(`INSERT INTO local_worker_events (id, worker_id, event_type, message, created_at)
+        VALUES ('worker-event-1', 'worker-1', 'result', 'Worker returned a result', datetime('now'))`).run();
+      const status = await fetch(`${base}/api/status`, { headers });
+      expect((await status.json() as any).localWorkers[0]).toMatchObject({
+        workerId: "worker-1", taskTitle: "Inspect local worker history", status: "completed",
+        progressMessage: "Collected a local result", result: { output: "Review-ready result" }, eventCount: 1, canStop: false,
+      });
       const initial = await fetch(`${base}/api/experiments`, { headers });
       expect(initial.status).toBe(200);
       expect((await initial.json() as any).items[0].status).toBe("proposed");

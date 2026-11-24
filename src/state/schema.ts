@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -865,6 +865,38 @@ export const MIGRATION_V19 = `
   ALTER TABLE business_experiments ADD COLUMN follow_up_goal_id TEXT REFERENCES goals(id);
   CREATE UNIQUE INDEX idx_business_experiment_follow_up_goal
     ON business_experiments(follow_up_goal_id) WHERE follow_up_goal_id IS NOT NULL;
+`;
+
+export const MIGRATION_V20 = `
+  -- Schema version: 20. Durable local worker identities, execution status and reports.
+  CREATE TABLE local_worker_runs (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL REFERENCES task_graph(id),
+    parent_worker_id TEXT,
+    name TEXT NOT NULL,
+    address TEXT NOT NULL,
+    role TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('queued','running','stopping','completed','failed','cancelled','interrupted')),
+    progress_stage TEXT NOT NULL,
+    progress_message TEXT NOT NULL,
+    result_json TEXT,
+    error TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_local_worker_runs_task ON local_worker_runs(task_id, created_at DESC);
+  CREATE INDEX idx_local_worker_runs_status ON local_worker_runs(status, updated_at DESC);
+  CREATE TABLE local_worker_events (
+    id TEXT PRIMARY KEY,
+    worker_id TEXT NOT NULL REFERENCES local_worker_runs(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL CHECK(event_type IN ('assigned','started','progress','result','failed','cancel_requested','cancelled','interrupted')),
+    message TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_local_worker_events_worker ON local_worker_events(worker_id, created_at DESC);
 `;
 
 export const MIGRATION_V10 = `

@@ -180,6 +180,10 @@ describe("orchestration/LocalWorkerPool harness integration", () => {
     const row = getTaskById(db, task.id);
     expect(row?.status).toBe("completed");
     expect(row?.result).toMatchObject({ success: true, output: "completed by harness" });
+    const worker = db.prepare("SELECT status, progress_stage, result_json FROM local_worker_runs WHERE id = ?").get("worker-test") as any;
+    expect(worker).toMatchObject({ status: "completed", progress_stage: "completed" });
+    expect(JSON.parse(worker.result_json)).toMatchObject({ output: "completed by harness" });
+    expect((db.prepare("SELECT COUNT(*) AS n FROM local_worker_events WHERE worker_id = ?").get("worker-test") as any).n).toBeGreaterThanOrEqual(4);
     expect(SuccessHarness.capturedContext?.budget.maxTurns).toBe(7);
     expect(SuccessHarness.capturedContext?.allowedEditRoot).toBe(process.cwd());
   });
@@ -201,6 +205,7 @@ describe("orchestration/LocalWorkerPool harness integration", () => {
     const row = getTaskById(db, task.id);
     expect(row?.status).toBe("failed");
     expect(row?.result).toMatchObject({ success: false, output: "failed by harness" });
+    expect((db.prepare("SELECT status FROM local_worker_runs WHERE id = ?").get("worker-test") as any).status).toBe("failed");
   });
 
   it("tracks active workers for spawn/hasWorker/getActiveCount", async () => {
@@ -249,6 +254,30 @@ describe("orchestration/LocalWorkerPool harness integration", () => {
     expect(row?.status).toBe("pending");
     expect(row?.retryCount).toBe(1);
     expect(pool.stopTask(task.id)).toBe(false);
+    expect((db.prepare("SELECT status FROM local_worker_runs WHERE task_id = ?").get(task.id) as any).status).toBe("cancelled");
+  });
+
+  it("marks persisted workers interrupted during recovery and retains their last assignment", () => {
+    const task = insertTask(db, {
+      id: "task-interrupted",
+      goalId: "goal-1",
+      agentRole: "executor",
+      status: "assigned",
+      assignedTo: "local://old-worker",
+      maxRetries: 1,
+    });
+    db.prepare(
+      `INSERT INTO local_worker_runs (id, task_id, name, address, role, status, progress_stage, progress_message, created_at, updated_at)
+       VALUES ('old-worker', ?, 'old worker', 'local://old-worker', 'executor', 'running', 'executing', 'Working before restart', datetime('now'), datetime('now'))`,
+    ).run(task.id);
+
+    createPool();
+
+    expect((db.prepare("SELECT status, error FROM local_worker_runs WHERE id = 'old-worker'").get() as any)).toMatchObject({
+      status: "interrupted",
+      error: "Process restarted before worker completion.",
+    });
+    expect((db.prepare("SELECT event_type FROM local_worker_events WHERE worker_id = 'old-worker' ORDER BY created_at DESC LIMIT 1").get() as any).event_type).toBe("interrupted");
   });
 
   it("gives orchestrator-role harnesses a 50-turn default budget", async () => {
