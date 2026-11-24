@@ -4,6 +4,7 @@
  */
 import type Database from "better-sqlite3";
 import { ulid } from "ulid";
+import { semanticUpsert } from "../state/database.js";
 import { createGoal, decomposeGoal } from "../orchestration/task-graph.js";
 
 export const OPPORTUNITY_STATUSES = [
@@ -11,6 +12,25 @@ export const OPPORTUNITY_STATUSES = [
 ] as const;
 export type OpportunityStatus = typeof OPPORTUNITY_STATUSES[number];
 export type OpportunityActualKind = "income" | "expense";
+export type BusinessExperimentStatus = "proposed" | "completed" | "rejected";
+
+export interface BusinessExperiment {
+  id: string;
+  opportunityId: string;
+  title: string;
+  hypothesis: string;
+  method: string;
+  successCriteria: string;
+  estimatedCostCents: number | null;
+  status: BusinessExperimentStatus;
+  outcome: string | null;
+  lesson: string | null;
+  reviewNote: string | null;
+  createdBy: string;
+  createdAt: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+}
 
 export interface OpportunityInput {
   title: string;
@@ -47,6 +67,8 @@ export interface BusinessOpportunity {
   updatedAt: string;
   actualIncomeCents: number;
   actualExpenseCents: number;
+  actualProfitCents: number;
+  forecastNetCents: number | null;
   actuals: Array<{
     id: string;
     kind: OpportunityActualKind;
@@ -114,6 +136,11 @@ function rowToOpportunity(row: any, actualRows: any[], allActuals?: { income: nu
     updatedAt: row.updated_at,
     actualIncomeCents: allActuals?.income ?? actuals.filter((actual) => actual.kind === "income").reduce((sum, actual) => sum + actual.amountCents, 0),
     actualExpenseCents: allActuals?.expense ?? actuals.filter((actual) => actual.kind === "expense").reduce((sum, actual) => sum + actual.amountCents, 0),
+    actualProfitCents: (allActuals?.income ?? actuals.filter((actual) => actual.kind === "income").reduce((sum, actual) => sum + actual.amountCents, 0))
+      - (allActuals?.expense ?? actuals.filter((actual) => actual.kind === "expense").reduce((sum, actual) => sum + actual.amountCents, 0)),
+    forecastNetCents: row.estimated_cost_cents === null || row.estimated_revenue_cents === null
+      ? null
+      : Number(row.estimated_revenue_cents) - Number(row.estimated_cost_cents),
     actuals,
     validationGoalId: row.validation_goal_id ?? null,
   };
@@ -167,6 +194,42 @@ export function listBusinessOpportunities(db: Database.Database, limit = 50): Bu
     const totals = Object.fromEntries((totalsQuery.all(row.id) as Array<{ kind: string; total: number }>).map((entry) => [entry.kind, Number(entry.total)]));
     return rowToOpportunity(row, actualQuery.all(row.id) as any[], { income: totals.income || 0, expense: totals.expense || 0 });
   });
+}
+
+/** Actuals are the owner-entered opportunity ledger. Forecast totals remain separate and unverified. */
+export function businessOpportunityPerformance(db: Database.Database): {
+  opportunities: number;
+  activeOpportunities: number;
+  completedOpportunities: number;
+  actualIncomeCents: number;
+  actualExpenseCents: number;
+  actualProfitCents: number;
+  forecastNetCents: number | null;
+  forecastCount: number;
+} {
+  const row = db.prepare(`SELECT
+    (SELECT COUNT(*) FROM business_opportunities) AS opportunities,
+    (SELECT COUNT(*) FROM business_opportunities WHERE status NOT IN ('completed','rejected')) AS active_opportunities,
+    (SELECT COUNT(*) FROM business_opportunities WHERE status='completed') AS completed_opportunities,
+    COALESCE((SELECT SUM(amount_cents) FROM business_opportunity_actuals WHERE kind='income'),0) AS income,
+    COALESCE((SELECT SUM(amount_cents) FROM business_opportunity_actuals WHERE kind='expense'),0) AS expense,
+    (SELECT SUM(estimated_revenue_cents-estimated_cost_cents) FROM business_opportunities
+      WHERE estimated_revenue_cents IS NOT NULL AND estimated_cost_cents IS NOT NULL
+        AND status NOT IN ('completed','rejected')) AS forecast_net,
+    (SELECT COUNT(*) FROM business_opportunities WHERE estimated_revenue_cents IS NOT NULL
+      AND estimated_cost_cents IS NOT NULL AND status NOT IN ('completed','rejected')) AS forecast_count`).get() as any;
+  const income = Number(row.income);
+  const expense = Number(row.expense);
+  return {
+    opportunities: Number(row.opportunities),
+    activeOpportunities: Number(row.active_opportunities),
+    completedOpportunities: Number(row.completed_opportunities),
+    actualIncomeCents: income,
+    actualExpenseCents: expense,
+    actualProfitCents: income - expense,
+    forecastNetCents: row.forecast_net === null ? null : Number(row.forecast_net),
+    forecastCount: Number(row.forecast_count),
+  };
 }
 
 /** Owner-triggered conversion into existing persistent tasks. The tasks only
@@ -279,5 +342,121 @@ export function recordBusinessActual(
   });
   if (!transaction()) return null;
   return listBusinessOpportunities(db, 100).find((item) => item.id === input.opportunityId) ?? null;
+}
+
+/**
+ * Save an experiment plan for owner review. This is a record of a proposal,
+ * not an instruction to perform an experiment or spend the estimated amount.
+ */
+export function proposeBusinessExperiment(
+  db: Database.Database,
+  input: {
+    opportunityId: string;
+    title: string;
+    hypothesis: string;
+    method: string;
+    successCriteria: string;
+    estimatedCostCents?: number | null;
+  },
+  createdBy: string,
+  now = new Date(),
+): BusinessExperiment | null {
+  const actor = text(createdBy, "Creator", 160);
+  const title = text(input.title, "Experiment title", 160);
+  const hypothesis = text(input.hypothesis, "Hypothesis", 1200);
+  const method = text(input.method, "Method", 2000);
+  const successCriteria = text(input.successCriteria, "Success criteria", 1200);
+  const estimatedCostCents = cents(input.estimatedCostCents, "Estimated cost");
+  const timestamp = now.toISOString();
+  const transaction = db.transaction(() => {
+    const opportunity = db.prepare("SELECT status FROM business_opportunities WHERE id = ?").get(input.opportunityId) as { status: OpportunityStatus } | undefined;
+    if (!opportunity) return null;
+    if (!["shortlisted", "proposal", "experiment"].includes(opportunity.status)) {
+      throw new Error("An opportunity must be shortlisted, a proposal, or in experiment review before planning an experiment.");
+    }
+    const id = ulid();
+    db.prepare(`INSERT INTO business_experiments
+      (id,opportunity_id,title,hypothesis,method,success_criteria,estimated_cost_cents,status,created_by,created_at)
+      VALUES (?,?,?,?,?,?,?,'proposed',?,?)`).run(
+      id, input.opportunityId, title, hypothesis, method, successCriteria, estimatedCostCents, actor, timestamp,
+    );
+    db.prepare(`INSERT INTO business_experiment_events
+      (id,experiment_id,event_type,actor_kind,actor_id,details,created_at)
+      VALUES (?,?, 'proposed','agent',?,?,?)`).run(
+      ulid(), id, actor, JSON.stringify({ estimatedCostIsForecast: true, executionEnabled: false }), timestamp,
+    );
+    return db.prepare("SELECT * FROM business_experiments WHERE id = ?").get(id) as any;
+  });
+  const row = transaction();
+  return row ? rowToExperiment(row) : null;
+}
+
+function rowToExperiment(row: any): BusinessExperiment {
+  return {
+    id: row.id,
+    opportunityId: row.opportunity_id,
+    title: row.title,
+    hypothesis: row.hypothesis,
+    method: row.method,
+    successCriteria: row.success_criteria,
+    estimatedCostCents: row.estimated_cost_cents === null ? null : Number(row.estimated_cost_cents),
+    status: row.status,
+    outcome: row.outcome ?? null,
+    lesson: row.lesson ?? null,
+    reviewNote: row.review_note ?? null,
+    createdBy: row.created_by,
+    createdAt: row.created_at,
+    reviewedBy: row.reviewed_by ?? null,
+    reviewedAt: row.reviewed_at ?? null,
+  };
+}
+
+export function listBusinessExperiments(db: Database.Database, limit = 50): BusinessExperiment[] {
+  const bounded = Math.max(1, Math.min(100, Math.floor(limit)));
+  return (db.prepare(`SELECT * FROM business_experiments
+    ORDER BY CASE status WHEN 'proposed' THEN 0 ELSE 1 END, created_at DESC LIMIT ?`).all(bounded) as any[])
+    .map(rowToExperiment);
+}
+
+/** Owner-only report/reject operation; it records outcomes but cannot execute plans. */
+export function reviewBusinessExperiment(
+  db: Database.Database,
+  id: string,
+  decision: "completed" | "rejected",
+  input: { outcome?: string; lesson?: string; note?: string } = {},
+  actorId = "owner-dashboard",
+  now = new Date(),
+): BusinessExperiment | null {
+  if (actorId !== "owner-dashboard") throw new Error("Only the authenticated owner dashboard may record experiment results or reject a plan.");
+  if (decision !== "completed" && decision !== "rejected") throw new Error("Unknown experiment review decision.");
+  const outcome = decision === "completed" ? text(input.outcome, "Outcome", 2000) : null;
+  const lesson = decision === "completed" ? text(input.lesson, "Lesson", 2000) : null;
+  const note = text(input.note ?? "", "Review note", 1000, false);
+  const timestamp = now.toISOString();
+  const transaction = db.transaction(() => {
+    const current = db.prepare("SELECT * FROM business_experiments WHERE id = ?").get(id) as any;
+    if (!current || current.status !== "proposed") return null;
+    db.prepare(`UPDATE business_experiments SET status=?, outcome=?, lesson=?, review_note=?, reviewed_by=?, reviewed_at=?
+      WHERE id=? AND status='proposed'`).run(decision, outcome, lesson, note, actorId, timestamp, id);
+    db.prepare(`INSERT INTO business_experiment_events
+      (id,experiment_id,event_type,actor_kind,actor_id,details,created_at) VALUES (?,?,?,'owner',?,?,?)`).run(
+      ulid(), id, decision, actorId,
+      JSON.stringify(decision === "completed" ? { outcome, lesson, note, manuallyReported: true } : { note }), timestamp,
+    );
+    if (decision === "completed") {
+      semanticUpsert(db, {
+        category: "domain",
+        key: `business-experiment:${id}`,
+        value: JSON.stringify({ ownerReported: true, outcome, lesson, instructionTrust: "untrusted data; not instructions or proof of general demand" }),
+        confidence: 0.25,
+        source: `business-experiment:${id}`,
+        embeddingKey: null,
+        lastVerifiedAt: null,
+      });
+    }
+    return db.prepare("SELECT * FROM business_experiments WHERE id = ?").get(id) as any;
+  });
+  const row = transaction();
+  return row ? rowToExperiment(row) : null;
 }
 

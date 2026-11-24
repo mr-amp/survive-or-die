@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 16;
+export const SCHEMA_VERSION = 17;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -793,6 +793,42 @@ export const MIGRATION_V16 = `
   ALTER TABLE business_opportunities ADD COLUMN validation_goal_id TEXT REFERENCES goals(id);
   CREATE UNIQUE INDEX idx_business_opportunity_validation_goal
     ON business_opportunities(validation_goal_id) WHERE validation_goal_id IS NOT NULL;
+`;
+
+export const MIGRATION_V17 = `
+  -- Schema version: 17. Proposed experiments are plans only. Owner-entered
+  -- results and lessons are separate from forecasts and the actuals ledger.
+  CREATE TABLE business_experiments (
+    id TEXT PRIMARY KEY,
+    opportunity_id TEXT NOT NULL REFERENCES business_opportunities(id),
+    title TEXT NOT NULL,
+    hypothesis TEXT NOT NULL,
+    method TEXT NOT NULL,
+    success_criteria TEXT NOT NULL,
+    estimated_cost_cents INTEGER CHECK(estimated_cost_cents IS NULL OR estimated_cost_cents >= 0),
+    status TEXT NOT NULL DEFAULT 'proposed'
+      CHECK(status IN ('proposed','completed','rejected')),
+    outcome TEXT,
+    lesson TEXT,
+    review_note TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    reviewed_by TEXT,
+    reviewed_at TEXT
+  );
+  CREATE INDEX idx_business_experiments_opportunity ON business_experiments(opportunity_id, created_at DESC);
+  CREATE INDEX idx_business_experiments_status ON business_experiments(status, created_at DESC);
+
+  CREATE TABLE business_experiment_events (
+    id TEXT PRIMARY KEY,
+    experiment_id TEXT NOT NULL REFERENCES business_experiments(id),
+    event_type TEXT NOT NULL CHECK(event_type IN ('proposed','completed','rejected')),
+    actor_kind TEXT NOT NULL CHECK(actor_kind IN ('agent','owner','system')),
+    actor_id TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_business_experiment_events ON business_experiment_events(experiment_id, created_at DESC);
 `;
 
 export const MIGRATION_V10 = `

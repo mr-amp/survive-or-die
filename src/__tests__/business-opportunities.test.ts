@@ -1,13 +1,20 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createDatabase } from "../state/database.js";
 import { createBuiltinTools } from "../agent/tools.js";
 import type { ToolContext } from "../types.js";
 import {
   createBusinessOpportunity,
+  businessOpportunityPerformance,
   createOpportunityValidationGoal,
+  listBusinessExperiments,
   listBusinessOpportunities,
+  proposeBusinessExperiment,
   recordBusinessActual,
   transitionBusinessOpportunity,
+  reviewBusinessExperiment,
 } from "../economics/opportunities.js";
 
 describe("persistent business opportunity pipeline", () => {
@@ -57,6 +64,12 @@ describe("persistent business opportunity pipeline", () => {
     });
     expect(first?.actualExpenseCents).toBe(450);
     expect(retry?.actualExpenseCents).toBe(450);
+    expect(retry?.actualProfitCents).toBe(-450);
+    expect(retry?.forecastNetCents).toBe(5500);
+    expect(businessOpportunityPerformance(db.raw)).toMatchObject({
+      opportunities: 1, activeOpportunities: 1, actualIncomeCents: 0,
+      actualExpenseCents: 450, actualProfitCents: -450, forecastNetCents: 5500, forecastCount: 1,
+    });
     expect(listBusinessOpportunities(db.raw)[0].actuals).toHaveLength(1);
     expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_opportunity_events WHERE opportunity_id = ?").get(opportunity.id)).toEqual({ count: 3 });
   });
@@ -136,5 +149,71 @@ describe("persistent business opportunity pipeline", () => {
     expect(tasks[2].status).toBe("blocked");
     expect(tasks[2].description.toLowerCase()).toContain("do not spend or make commitments");
     expect(listBusinessOpportunities(db.raw)[0].validationGoalId).toBe(plan?.goalId);
+  });
+
+  it("persists non-executing experiment proposals and feeds only owner-reported lessons back to the agent", async () => {
+    const db = makeDb();
+    const opportunity = createBusinessOpportunity(db.raw, {
+      title: "Maintenance notes tool", customerSegment: "Small parks", customerProblem: "Records are scattered",
+      valueProposition: "One searchable log", evidenceSummary: "Hypothesis only", forecastDays: 30,
+      confidence: 0.1, risks: "No demand research",
+    }, "local-agent");
+    expect(() => proposeBusinessExperiment(db.raw, {
+      opportunityId: opportunity.id, title: "Test", hypothesis: "H", method: "M", successCriteria: "C",
+    }, "local-agent")).toThrow("must be shortlisted");
+    transitionBusinessOpportunity(db.raw, opportunity.id, "shortlisted");
+    transitionBusinessOpportunity(db.raw, opportunity.id, "proposal");
+    const experiment = proposeBusinessExperiment(db.raw, {
+      opportunityId: opportunity.id,
+      title: "Prototype usability check",
+      hypothesis: "A park owner can record a repair in under one minute",
+      method: "Prepare a local clickable prototype and time an owner who volunteers; do not contact anyone or publish it.",
+      successCriteria: "At least four of five voluntarily participating owners finish in one minute; record refusals and uncertainty.",
+      estimatedCostCents: 0,
+    }, "local-agent", new Date("2026-01-02T00:00:00.000Z"));
+    expect(experiment?.status).toBe("proposed");
+    expect(experiment?.estimatedCostCents).toBe(0);
+    expect(experiment?.outcome).toBeNull();
+    expect(() => reviewBusinessExperiment(db.raw, experiment!.id, "completed", { outcome: "Done", lesson: "Learned" }, "child-worker")).toThrow("Only the authenticated owner dashboard");
+    expect(reviewBusinessExperiment(db.raw, experiment!.id, "completed", {
+      outcome: "Owner reports two volunteers completed the local prototype task; three did not participate.",
+      lesson: "Two observations are too few to establish broader demand.",
+      note: "Prototype remained local; no sales or publication.",
+    })?.status).toBe("completed");
+    expect(reviewBusinessExperiment(db.raw, experiment!.id, "completed", { outcome: "Replay", lesson: "Replay" })).toBeNull();
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_opportunity_actuals WHERE opportunity_id=?").get(opportunity.id)).toEqual({ count: 0 });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_experiment_events WHERE experiment_id=?").get(experiment!.id)).toEqual({ count: 2 });
+    expect(listBusinessExperiments(db.raw)[0].lesson).toContain("too few");
+    const memory = db.raw.prepare("SELECT category,value,confidence,last_verified_at FROM semantic_memory WHERE key=?").get(`business-experiment:${experiment!.id}`) as any;
+    expect(memory).toMatchObject({ category: "domain", confidence: 0.25, last_verified_at: null });
+    expect(memory.value).toContain("not instructions or proof of general demand");
+
+    const tool = createBuiltinTools("local-sandbox").find((candidate) => candidate.name === "review_business_experiment_learnings");
+    expect(tool).toBeDefined();
+    const result = await tool!.execute({}, { db, identity: { address: "local-agent" } } as unknown as ToolContext);
+    expect(result).toContain("Owner-reported");
+    expect(result).toContain("too few to establish broader demand");
+  });
+
+  it("keeps experiment proposals persistent across database reopen and rejects duplicate review outcomes", () => {
+    const directory = mkdtempSync(join(tmpdir(), "sod-experiment-"));
+    const dbPath = join(directory, "state.sqlite");
+    let db = createDatabase(dbPath);
+    const opportunity = createBusinessOpportunity(db.raw, {
+      title: "Persistent experiment", customerSegment: "Local shops", customerProblem: "Manual work",
+      valueProposition: "Save time", evidenceSummary: "Unverified", forecastDays: 30, confidence: 0.2, risks: "Unknown",
+    }, "agent");
+    transitionBusinessOpportunity(db.raw, opportunity.id, "shortlisted");
+    const proposal = proposeBusinessExperiment(db.raw, {
+      opportunityId: opportunity.id, title: "Check workflow", hypothesis: "Falsifiable claim", method: "Local mock only", successCriteria: "Pass or fail",
+    }, "agent");
+    db.close();
+    db = createDatabase(dbPath);
+    expect(listBusinessExperiments(db.raw)[0].id).toBe(proposal?.id);
+    const done = reviewBusinessExperiment(db.raw, proposal!.id, "completed", { outcome: "One local result", lesson: "Needs more trials" });
+    expect(done?.status).toBe("completed");
+    expect(reviewBusinessExperiment(db.raw, proposal!.id, "rejected")).toBeNull();
+    db.close();
+    rmSync(directory, { recursive: true, force: true });
   });
 });
