@@ -43,6 +43,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "test:coverage": "vitest run --coverage",
+    "test:offline": "vitest run --config vitest.offline.config.ts --pool=forks --maxWorkers=1",
     "test:security": "vitest run -t 'security|injection|policy'",
     "test:financial": "vitest run -t 'financial|spend|treasury'",
     "test:ci": "vitest run --reporter=verbose",

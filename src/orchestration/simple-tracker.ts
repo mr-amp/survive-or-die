@@ -86,11 +86,11 @@ export class SimpleFundingProtocol implements FundingProtocol {
   ) {}
 
   async fundChild(childAddress: string, amountCents: number): Promise<{ success: boolean }> {
-    if (!this.identity.apiKey) return { success: false };
     const transferAmount = Math.max(0, Math.floor(amountCents));
     if (transferAmount === 0) {
       return { success: true };
     }
+    if (!this.identity.apiKey) return { success: false };
 
     try {
       const result = await this.conway.transferCredits(

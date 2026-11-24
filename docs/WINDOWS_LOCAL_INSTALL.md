@@ -64,6 +64,8 @@ Retryable task failures are persisted with an increasing retry delay (5 seconds 
 
 ### Dashboard acceptance check
 
+Before Windows acceptance, run `pnpm run test:offline` for the local suite. It denies non-loopback global `fetch` and runs one Vitest worker; it is not a substitute for reviewing direct network clients or hardware tests. Registry loop detection uses a deterministic fixture in that suite.
+
 After sign-in, verify the business opportunity pipeline is visible. Once the agent has proposed an opportunity, move it between permitted stages and restart the agent to confirm the stage persists. Add an actual income or expense only when you have an owner-verified amount to record. Confirm the dashboard labels forecasts as unverified and that recording an actual only changes the local ledger; it must not send money or create an external commitment.
 
 Confirm that experiment proposals do not start automatically. Record an outcome only for an experiment that was actually performed, include an uncertainty-aware lesson, and verify the proposal becomes read-only after review. The experiment outcome must not create ledger entries; enter actual income or costs separately and verify actual net and estimated forecast net remain distinct.

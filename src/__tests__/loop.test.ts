@@ -709,6 +709,10 @@ describe("Agent Loop", () => {
   });
 
   it("discover_agents turns are retained in context (not classified as idle)", { timeout: 180_000 }, async () => {
+    // The behavior under test is loop detection, not ERC-8004 RPC availability.
+    // Keep this integration deterministic and safe for the offline test suite.
+    const discovery = await import("../registry/discovery.js");
+    vi.spyOn(discovery, "discoverAgents").mockResolvedValue([]);
     // A turn with only discover_agents should NOT trigger maintenance loop detection
     // because discover_agents is no longer in IDLE_ONLY_TOOLS
     function discoverResponse(uid: string): ReturnType<typeof toolCallResponse> {

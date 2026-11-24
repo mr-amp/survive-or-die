@@ -219,7 +219,7 @@ describe("orchestration/SimpleFundingProtocol", () => {
       getCreditsBalance: vi.fn().mockResolvedValue(500),
     } as any;
 
-    const identity = { address: "0xparent" } as any;
+    const identity = { address: "0xparent", apiKey: "test-conway-key" } as any;
     const funding = new SimpleFundingProtocol(mockConway, identity, makeMockDb(fundingDb));
 
     const result = await funding.fundChild("0xchild", 100);
@@ -237,7 +237,7 @@ describe("orchestration/SimpleFundingProtocol", () => {
       transferCredits: vi.fn().mockResolvedValue({ status: "ok" }),
     } as any;
 
-    const identity = { address: "0xparent" } as any;
+    const identity = { address: "0xparent", apiKey: "test-conway-key" } as any;
     const funding = new SimpleFundingProtocol(mockConway, identity, makeMockDb(fundingDb));
 
     await funding.fundChild("0xchild", 200);
@@ -261,13 +261,26 @@ describe("orchestration/SimpleFundingProtocol", () => {
     expect(mockConway.transferCredits).not.toHaveBeenCalled();
   });
 
+  it("blocks non-zero child funding when Conway credentials are absent", async () => {
+    const mockConway = { transferCredits: vi.fn() } as any;
+    const identity = { address: "0xparent" } as any;
+    const funding = new SimpleFundingProtocol(mockConway, identity, makeMockDb(fundingDb));
+
+    const result = await funding.fundChild("0xchild", 50);
+
+    expect(result.success).toBe(false);
+    expect(mockConway.transferCredits).not.toHaveBeenCalled();
+    const row = fundingDb.prepare("SELECT funded_amount_cents FROM children WHERE address = ?").get("0xchild") as any;
+    expect(row.funded_amount_cents).toBe(0);
+  });
+
   it("fundChild returns success:false when transferCredits throws", async () => {
     const mockConway = {
       transferCredits: vi.fn().mockRejectedValue(new Error("network failure")),
       getCreditsBalance: vi.fn().mockResolvedValue(200),
     } as any;
 
-    const identity = { address: "0xparent" } as any;
+    const identity = { address: "0xparent", apiKey: "test-conway-key" } as any;
     const funding = new SimpleFundingProtocol(mockConway, identity, makeMockDb(fundingDb));
 
     const result = await funding.fundChild("0xchild", 50);
@@ -304,7 +317,7 @@ describe("orchestration/SimpleFundingProtocol", () => {
       getCreditsBalance: vi.fn().mockResolvedValue(500),
     } as any;
 
-    const identity = { address: "0xparent" } as any;
+    const identity = { address: "0xparent", apiKey: "test-conway-key" } as any;
     const funding = new SimpleFundingProtocol(mockConway, identity, makeMockDb(fundingDb));
 
     const result = await funding.recallCredits("0xchild");
@@ -325,7 +338,7 @@ describe("orchestration/SimpleFundingProtocol", () => {
       transferCredits: vi.fn().mockResolvedValue({ status: "ok", amountCents: 500 }),
     } as any;
 
-    const identity = { address: "0xparent" } as any;
+    const identity = { address: "0xparent", apiKey: "test-conway-key" } as any;
     const funding = new SimpleFundingProtocol(mockConway, identity, makeMockDb(fundingDb));
 
     await funding.recallCredits("0xchild");

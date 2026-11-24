@@ -363,7 +363,7 @@ describe("Heartbeat Tasks", () => {
       expect(result.shouldWake).toBe(false);
     });
 
-    it("wakes when has USDC but critically low credits", async () => {
+    it("records balances without waking to purchase credits", async () => {
       const tickCtx = createMockTickContext(db, {
         creditBalance: 0, // critical tier
         usdcBalance: 10.0, // > 5
@@ -378,8 +378,9 @@ describe("Heartbeat Tasks", () => {
 
       const result = await BUILTIN_TASKS.check_usdc_balance(tickCtx, taskCtx);
 
-      expect(result.shouldWake).toBe(true);
-      expect(result.message).toContain("USDC");
+      expect(result.shouldWake).toBe(false);
+      expect(result.message).toContain("no credits were purchased");
+      expect(db.getKV("last_usdc_check")).toContain('"automaticPurchasesDisabled":true');
     });
 
     it("does not wake when USDC below threshold", async () => {
