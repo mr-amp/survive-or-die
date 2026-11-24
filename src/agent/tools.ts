@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 32537)
-Total output lines: 3613
-
 /**
  * Automaton Tool System
  *
@@ -1722,7 +1719,288 @@ Model: ${ctx.inference.getDefaultModel()}
                   ctx.conway,
                   ctx.identity,
                   ctx.db,
-         …2537 tokens truncated…number",
+                  retryGenesis,
+                  retryLifecycle,
+                );
+              }
+            }
+          }
+          if (!child) throw err;
+        }
+
+        return `Child spawned: ${child.name} in sandbox ${child.sandboxId} (status: ${child.status})`;
+      },
+    },
+    {
+      name: "list_children",
+      description: "List all spawned child automatons with lifecycle state.",
+      category: "replication",
+      riskLevel: "safe",
+      parameters: { type: "object", properties: {} },
+      execute: async (_args, ctx) => {
+        const children = ctx.db.getChildren();
+        if (children.length === 0) return "No children spawned.";
+        return children
+          .map(
+            (c) =>
+              `${c.name} [${c.status}] sandbox:${c.sandboxId} funded:$${(c.fundedAmountCents / 100).toFixed(2)} last_check:${c.lastChecked || "never"}`,
+          )
+          .join("\n");
+      },
+    },
+    {
+      name: "fund_child",
+      description:
+        "Transfer credits to a child automaton. Requires wallet_verified status.",
+      category: "replication",
+      riskLevel: "dangerous",
+      parameters: {
+        type: "object",
+        properties: {
+          child_id: { type: "string", description: "Child automaton ID" },
+          amount_cents: {
+            type: "number",
+            description: "Amount in cents to transfer",
+          },
+        },
+        required: ["child_id", "amount_cents"],
+      },
+      execute: async (args, ctx) => {
+        const child = ctx.db.getChildById(args.child_id as string);
+        if (!child) return `Child ${args.child_id} not found.`;
+
+        // Reject zero-address
+        const { isValidWalletAddress } =
+          await import("../replication/spawn.js");
+        const childChainType = child.chainType || ctx.config.chainType || ctx.identity.chainType || "evm";
+        if (!isValidWalletAddress(child.address, childChainType)) {
+          return `Blocked: Child ${args.child_id} has invalid wallet address. Must be wallet_verified.`;
+        }
+
+        // Require wallet_verified or later status
+        const validFundingStates = [
+          "wallet_verified",
+          "funded",
+          "starting",
+          "healthy",
+          "unhealthy",
+        ];
+        if (!validFundingStates.includes(child.status)) {
+          return `Blocked: Child status is '${child.status}', must be wallet_verified or later to fund.`;
+        }
+
+        const amount = args.amount_cents as number;
+        if (!Number.isFinite(amount) || amount <= 0) {
+          return `Blocked: amount_cents must be a positive number, got ${amount}.`;
+        }
+
+        const balance = await ctx.conway.getCreditsBalance();
+        if (amount > balance / 2) {
+          return `Blocked: Cannot transfer more than half your balance. Self-preservation.`;
+        }
+
+        const transfer = await ctx.conway.transferCredits(
+          child.address,
+          amount,
+          `fund child ${child.id}`,
+        );
+
+        const { ulid } = await import("ulid");
+        ctx.db.insertTransaction({
+          id: ulid(),
+          type: "transfer_out",
+          amountCents: amount,
+          balanceAfterCents:
+            transfer.balanceAfterCents ?? Math.max(balance - amount, 0),
+          description: `Fund child ${child.name} (${child.id})`,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Update funded amount
+        ctx.db.raw
+          .prepare(
+            "UPDATE children SET funded_amount_cents = funded_amount_cents + ? WHERE id = ?",
+          )
+          .run(amount, child.id);
+
+        // Transition to funded if wallet_verified
+        if (child.status === "wallet_verified") {
+          try {
+            const { ChildLifecycle } =
+              await import("../replication/lifecycle.js");
+            const lifecycle = new ChildLifecycle(ctx.db.raw);
+            lifecycle.transition(
+              child.id,
+              "funded",
+              `funded with ${amount} cents`,
+            );
+          } catch {
+            // Non-critical: may already be in funded state
+          }
+        }
+
+        return `Funded child ${child.name} with $${(amount / 100).toFixed(2)} (status: ${transfer.status}, id: ${transfer.transferId || "n/a"})`;
+      },
+    },
+    {
+      name: "check_child_status",
+      description:
+        "Check the current status of a child automaton using health check system.",
+      category: "replication",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          child_id: { type: "string", description: "Child automaton ID" },
+        },
+        required: ["child_id"],
+      },
+      execute: async (args, ctx) => {
+        const child = ctx.db.getChildById(args.child_id as string);
+        if (!child) return `Child ${args.child_id} not found.`;
+
+        const { ChildLifecycle } = await import("../replication/lifecycle.js");
+        const { ChildHealthMonitor } = await import("../replication/health.js");
+        const lifecycle = new ChildLifecycle(ctx.db.raw);
+        // Use a scoped client targeting the CHILD's sandbox for health checks
+        const childConway = ctx.conway.createScopedClient(child.sandboxId);
+        const monitor = new ChildHealthMonitor(
+          ctx.db.raw,
+          childConway,
+          lifecycle,
+        );
+        const result = await monitor.checkHealth(args.child_id as string);
+        return JSON.stringify(result, null, 2);
+      },
+    },
+    {
+      name: "start_child",
+      description:
+        "Start a funded child automaton. Transitions from funded to starting.",
+      category: "replication",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          child_id: { type: "string", description: "Child automaton ID" },
+        },
+        required: ["child_id"],
+      },
+      execute: async (args, ctx) => {
+        const child = ctx.db.getChildById(args.child_id as string);
+        if (!child) return `Child ${args.child_id} not found.`;
+
+        const { ChildLifecycle } = await import("../replication/lifecycle.js");
+        const lifecycle = new ChildLifecycle(ctx.db.raw);
+
+        lifecycle.transition(child.id, "starting", "start requested by parent");
+
+        // Create a scoped client targeting the CHILD's sandbox
+        const childConway = ctx.conway.createScopedClient(child.sandboxId);
+
+        try {
+          // Start the child process with nohup so it survives exec session end
+          await childConway.exec(
+            "nohup node /root/automaton/dist/index.js --run > /root/.automaton/agent.log 2>&1 &",
+            30_000,
+          );
+
+          // Brief pause then verify the process is actually running
+          const check = await childConway.exec(
+            "sleep 2 && pgrep -f 'index.js --run' > /dev/null && echo running || echo stopped",
+            15_000,
+          );
+
+          if (check.stdout.trim() === "running") {
+            lifecycle.transition(child.id, "healthy", "started successfully");
+            return `Child ${child.name} started and healthy.`;
+          } else {
+            lifecycle.transition(child.id, "failed", "process did not start");
+            return `Child ${child.name} failed to start — process exited immediately. Check /root/.automaton/agent.log`;
+          }
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          try {
+            lifecycle.transition(child.id, "failed", `start failed: ${msg}`);
+          } catch { /* may already be in terminal state */ }
+          return `Failed to start child ${child.name}: ${msg}`;
+        }
+      },
+    },
+    {
+      name: "message_child",
+      description:
+        "Send a signed message to a child automaton via social relay.",
+      category: "replication",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          child_id: { type: "string", description: "Child automaton ID" },
+          content: { type: "string", description: "Message content" },
+          type: {
+            type: "string",
+            description: "Message type (default: parent_message)",
+          },
+        },
+        required: ["child_id", "content"],
+      },
+      execute: async (args, ctx) => {
+        if (!ctx.social) {
+          return "Social relay not configured. Set socialRelayUrl in config.";
+        }
+
+        const child = ctx.db.getChildById(args.child_id as string);
+        if (!child) return `Child ${args.child_id} not found.`;
+
+        const { sendToChild } = await import("../replication/messaging.js");
+        const result = await sendToChild(
+          ctx.social,
+          child.address,
+          args.content as string,
+          (args.type as string) || "parent_message",
+        );
+        return `Message sent to child ${child.name} (id: ${result.id})`;
+      },
+    },
+    {
+      name: "verify_child_constitution",
+      description: "Verify the constitution integrity of a child automaton.",
+      category: "replication",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          child_id: { type: "string", description: "Child automaton ID" },
+        },
+        required: ["child_id"],
+      },
+      execute: async (args, ctx) => {
+        const child = ctx.db.getChildById(args.child_id as string);
+        if (!child) return `Child ${args.child_id} not found.`;
+
+        const { verifyConstitution } =
+          await import("../replication/constitution.js");
+        // Use a scoped client targeting the CHILD's sandbox
+        const childConway = ctx.conway.createScopedClient(child.sandboxId);
+        const result = await verifyConstitution(
+          childConway,
+          child.sandboxId,
+          ctx.db.raw,
+        );
+        return JSON.stringify(result, null, 2);
+      },
+    },
+    {
+      name: "prune_dead_children",
+      description: "Clean up dead/failed children and their sandboxes.",
+      category: "replication",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          keep_last: {
+            type: "number",
             description: "Number of recent dead children to keep (default: 5)",
           },
         },
