@@ -75,4 +75,4 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 
 ## Checkpoint
 
-Previous verified remote head: `4e6f847864a3bd459857db853c543cf366535b05`. Dependency remediation and local-RPC hardening are implemented in the current uncommitted batch until review, commit and remote verification.
+Previous verified remote head: `4e6f847864a3bd459857db853c543cf366535b05`. Dependency remediation and local-RPC hardening are committed to `work/local-first-windows` as `d18aa068ca83c5a58059b0fc0ff7366ebbf38b82`; this status-file update follows that implementation commit.
