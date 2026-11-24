@@ -1,9 +1,11 @@
 packages:
   - "packages/*"
 
-onlyBuiltDependencies:
-  - better-sqlite3
-  - esbuild
+allowBuilds:
+  better-sqlite3: true
+  bufferutil: false
+  esbuild: true
+  utf-8-validate: false
 
 overrides:
   "rollup@^4.0.0": "^4.59.0"

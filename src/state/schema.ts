@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -786,6 +786,13 @@ export const MIGRATION_V15 = `
   -- Schema version: 15. Persist bounded exponential retry backoff for task recovery.
   ALTER TABLE task_graph ADD COLUMN next_attempt_at TEXT;
   CREATE INDEX idx_task_graph_next_attempt ON task_graph(status, next_attempt_at);
+`;
+
+export const MIGRATION_V16 = `
+  -- Schema version: 16. Link each reviewed opportunity to at most one validation goal.
+  ALTER TABLE business_opportunities ADD COLUMN validation_goal_id TEXT REFERENCES goals(id);
+  CREATE UNIQUE INDEX idx_business_opportunity_validation_goal
+    ON business_opportunities(validation_goal_id) WHERE validation_goal_id IS NOT NULL;
 `;
 
 export const MIGRATION_V10 = `

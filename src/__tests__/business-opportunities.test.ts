@@ -4,6 +4,7 @@ import { createBuiltinTools } from "../agent/tools.js";
 import type { ToolContext } from "../types.js";
 import {
   createBusinessOpportunity,
+  createOpportunityValidationGoal,
   listBusinessOpportunities,
   recordBusinessActual,
   transitionBusinessOpportunity,
@@ -113,5 +114,26 @@ describe("persistent business opportunity pipeline", () => {
     const listed = listBusinessOpportunities(db.raw)[0];
     expect(listed.actualIncomeCents).toBe(101);
     expect(listed.actuals).toHaveLength(100);
+  });
+
+  it("converts an owner-shortlisted opportunity into one bounded persistent validation goal", () => {
+    const db = makeDb();
+    const item = createBusinessOpportunity(db.raw, {
+      title: "Park repair tracker", customerSegment: "Small holiday parks",
+      customerProblem: "Repair history is hard to find", valueProposition: "Searchable maintenance history",
+      evidenceSummary: "Hypothesis only", forecastDays: 90, confidence: 0.2, risks: "Demand unverified",
+    }, "agent");
+    transitionBusinessOpportunity(db.raw, item.id, "shortlisted");
+    const plan = createOpportunityValidationGoal(db.raw, item.id);
+    const retry = createOpportunityValidationGoal(db.raw, item.id);
+    expect(plan?.existing).toBe(false);
+    expect(retry).toEqual({ goalId: plan?.goalId, existing: true });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_opportunities WHERE id = ? AND validation_goal_id = ?").get(item.id, plan?.goalId)).toEqual({ count: 1 });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM goals WHERE id = ?").get(plan?.goalId)).toEqual({ count: 1 });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE goal_id = ?").get(plan?.goalId)).toEqual({ count: 3 });
+    const tasks = db.raw.prepare("SELECT title,description,status FROM task_graph WHERE goal_id = ? ORDER BY priority DESC").all(plan?.goalId) as Array<{title:string;description:string;status:string}>;
+    expect(tasks.every((task) => task.status === "pending")).toBe(true);
+    expect(tasks[2].description).toContain("Do not spend or make commitments");
+    expect(listBusinessOpportunities(db.raw)[0].validationGoalId).toBe(plan?.goalId);
   });
 });
