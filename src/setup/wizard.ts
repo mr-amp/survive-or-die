@@ -101,7 +101,7 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   const creatorAddressLabel = walletChainType === "solana"
     ? "Creator wallet address (base58)"
     : "Creator wallet address (0x...)";
-  const creatorAddress = localOnly ? walletAddress : await promptAddress(creatorAddressLabel, walletChainType);
+  const creatorAddress = await promptAddress(creatorAddressLabel, walletChainType);
   console.log(chalk.green(`  Creator: ${creatorAddress}\n`));
 
   console.log(chalk.white(localOnly ? "  Local inference configuration." : "  Optional: bring your own inference provider keys (press Enter to skip)."));
