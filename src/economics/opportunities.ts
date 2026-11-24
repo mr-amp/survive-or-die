@@ -374,6 +374,15 @@ export function proposeBusinessExperiment(
     if (!["shortlisted", "proposal", "experiment"].includes(opportunity.status)) {
       throw new Error("An opportunity must be shortlisted, a proposal, or in experiment review before planning an experiment.");
     }
+    // Retries and repetitive reasoning loops must not flood the owner queue
+    // with the same plan. A rejected/completed plan remains in history and is
+    // returned unchanged; a genuinely revised method or criteria is distinct.
+    const duplicate = db.prepare(`SELECT * FROM business_experiments
+      WHERE opportunity_id=? AND title=? AND hypothesis=? AND method=? AND success_criteria=?
+        AND estimated_cost_cents IS ? LIMIT 1`).get(
+      input.opportunityId, title, hypothesis, method, successCriteria, estimatedCostCents,
+    ) as any;
+    if (duplicate) return duplicate;
     const id = ulid();
     db.prepare(`INSERT INTO business_experiments
       (id,opportunity_id,title,hypothesis,method,success_criteria,estimated_cost_cents,status,created_by,created_at)

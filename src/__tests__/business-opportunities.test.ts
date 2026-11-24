@@ -163,14 +163,18 @@ describe("persistent business opportunity pipeline", () => {
     }, "local-agent")).toThrow("must be shortlisted");
     transitionBusinessOpportunity(db.raw, opportunity.id, "shortlisted");
     transitionBusinessOpportunity(db.raw, opportunity.id, "proposal");
-    const experiment = proposeBusinessExperiment(db.raw, {
+    const experimentInput = {
       opportunityId: opportunity.id,
       title: "Prototype usability check",
       hypothesis: "A park owner can record a repair in under one minute",
       method: "Prepare a local clickable prototype and time an owner who volunteers; do not contact anyone or publish it.",
       successCriteria: "At least four of five voluntarily participating owners finish in one minute; record refusals and uncertainty.",
       estimatedCostCents: 0,
-    }, "local-agent", new Date("2026-01-02T00:00:00.000Z"));
+    };
+    const experiment = proposeBusinessExperiment(db.raw, experimentInput, "local-agent", new Date("2026-01-02T00:00:00.000Z"));
+    const duplicateProposal = proposeBusinessExperiment(db.raw, experimentInput, "local-agent", new Date("2026-01-03T00:00:00.000Z"));
+    expect(duplicateProposal?.id).toBe(experiment?.id);
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_experiment_events WHERE experiment_id=?").get(experiment!.id)).toEqual({ count: 1 });
     expect(experiment?.status).toBe("proposed");
     expect(experiment?.estimatedCostCents).toBe(0);
     expect(experiment?.outcome).toBeNull();
