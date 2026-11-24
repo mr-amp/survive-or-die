@@ -88,4 +88,4 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 
 ## Checkpoint
 
-Latest verified remote head before the current reliability batch: `be1dd03d918edd4f5d3c283e67d619527a350147`. Health-monitor and dead-worker retry recovery changes are in the current development workspace and have not yet been committed. `main` remains untouched.
+Latest verified remote feature commit: `ec8147e47ae7dbc2d8721142ee0f35074cd95761` — `fix: back off recovered orchestration tasks`. It was pushed to `work/local-first-windows` and fetched back from `origin`. The focused suites, typecheck and build passed in the resumed workspace. `main` remains untouched.
