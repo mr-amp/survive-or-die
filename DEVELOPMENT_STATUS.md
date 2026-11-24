@@ -88,4 +88,4 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 
 ## Checkpoint
 
-Previous verified remote head before the opportunity validation-plan batch: `d4917f8ebeec076db30b1bed20f491e05475efc3`. Opportunity validation-plan v16 is under review in the current workspace and has not yet been committed. `main` remains untouched.
+Latest verified remote head: `fc7a01c60dcd8deb8b34c287d5895308ea69e973` — `feat: plan opportunity validation through task graph`. It was pushed to `work/local-first-windows` and fetched back from `origin`. `main` remains untouched.
