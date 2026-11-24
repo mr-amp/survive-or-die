@@ -98,4 +98,4 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 
 ## Checkpoint
 
-Latest verified remote development commit before the current opportunity-idempotency batch: `a564162c87188bd85cf6a99314b67a4c71980ab7` — `test: add bounded offline verification mode`. An independently reviewed opportunity deduplication follow-up is now implemented and being checked for the development branch; `main` remains untouched.
+Previous checkpoint: `a564162c87188bd85cf6a99314b67a4c71980ab7` — `test: add bounded offline verification mode`. Active opportunity deduplication and its passing verification were committed and remotely confirmed in `e3c87dadb11ebeb8cb1f70aadf60fed391fd40b3`. `main` remains untouched.
