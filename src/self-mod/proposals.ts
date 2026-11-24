@@ -14,6 +14,8 @@ const MAX_TOTAL_BYTES = 250_000;
 const MAX_FILES = 12;
 const PROPOSAL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const BLOCKED_PATH_SEGMENTS = new Set([".git", ".automaton", "node_modules", ".ssh", ".aws", ".azure", ".gnupg"]);
+const WINDOWS_RESERVED_PATH = /[<>:"|?*]/;
+const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$/i;
 
 export interface ProposedFile {
   path: string;
@@ -64,7 +66,7 @@ function normaliseProposalFiles(files: ProposedFile[]): ProposedFile[] {
   return files.map((file) => {
     if (!file || typeof file.path !== "string" || typeof file.content !== "string") throw new Error("Each proposal file requires a path and text content.");
     const proposedPath = file.path.trim().replace(/\\/g, "/");
-    if (!proposedPath || proposedPath.includes("\0") || path.isAbsolute(proposedPath) || proposedPath.split("/").some((part) => part === ".." || part === "")) {
+    if (!proposedPath || proposedPath.includes("\0") || path.isAbsolute(proposedPath) || proposedPath.split("/").some((part) => part === ".." || part === "" || WINDOWS_RESERVED_PATH.test(part) || WINDOWS_RESERVED_NAME.test(part) || part.endsWith(".") || part.endsWith(" "))) {
       throw new Error(`Unsafe proposal path: ${file.path}`);
     }
     const resolved = path.resolve(root, proposedPath);
@@ -80,8 +82,9 @@ function normaliseProposalFiles(files: ProposedFile[]): ProposedFile[] {
       if (real !== root && !real.startsWith(root + path.sep)) throw new Error(`Proposal path resolves outside the repository: ${proposedPath}`);
     }
     const normal = proposedPath.split("/").join(path.sep);
-    if (seen.has(normal)) throw new Error(`Duplicate proposal path: ${proposedPath}`);
-    seen.add(normal);
+    const duplicateKey = normal.toLowerCase();
+    if (seen.has(duplicateKey)) throw new Error(`Duplicate proposal path: ${proposedPath}`);
+    seen.add(duplicateKey);
     const bytes = Buffer.byteLength(file.content, "utf8");
     if (bytes > MAX_FILE_BYTES) throw new Error(`Proposal file exceeds ${MAX_FILE_BYTES} bytes: ${proposedPath}`);
     totalBytes += bytes;

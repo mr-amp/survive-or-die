@@ -1,5 +1,8 @@
 import fs from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { createDatabase } from "../state/database.js";
 import { createBuiltinTools } from "../agent/tools.js";
 import type { ToolContext } from "../types.js";
@@ -8,6 +11,7 @@ import {
   listSelfImprovementProposals,
   reviewSelfImprovementProposal,
 } from "../self-mod/proposals.js";
+import { prepareSelfImprovementWorkspace } from "../self-mod/workspaces.js";
 
 describe("draft-only self-improvement proposals", () => {
   const databases: ReturnType<typeof createDatabase>[] = [];
@@ -52,6 +56,8 @@ describe("draft-only self-improvement proposals", () => {
     const base = { title: "A proposal", rationale: "A reason", requesterId: "local-agent", requesterKind: "agent" as const };
     expect(() => createSelfImprovementProposal(db.raw, { ...base, files: [{ path: "src/agent/tools.ts", content: "danger" }] })).toThrow("Protected runtime file");
     expect(() => createSelfImprovementProposal(db.raw, { ...base, files: [{ path: "../outside.txt", content: "no" }] })).toThrow("Unsafe proposal path");
+    expect(() => createSelfImprovementProposal(db.raw, { ...base, files: [{ path: "CON.txt", content: "no" }] })).toThrow("Unsafe proposal path");
+    expect(() => createSelfImprovementProposal(db.raw, { ...base, files: [{ path: "notes/Readme.md", content: "one" }, { path: "notes/README.md", content: "two" }] })).toThrow("Duplicate proposal path");
     expect(() => createSelfImprovementProposal(db.raw, { ...base, files: [{ path: ".env.local", content: "secret" }] })).toThrow("Sensitive or generated paths");
     const proposal = createSelfImprovementProposal(db.raw, { ...base, files: [{ path: "README.md", content: "Draft" }] });
     expect(() => reviewSelfImprovementProposal(db.raw, proposal.id, "approved", "", new Date(Date.now() + 8 * 24 * 60 * 60 * 1000))).not.toThrow();
@@ -80,5 +86,66 @@ describe("draft-only self-improvement proposals", () => {
     const second = createSelfImprovementProposal(db.raw, input, new Date("2026-01-09T00:00:00.000Z"));
     expect(second.id).not.toBe(first.id);
     expect(second.status).toBe("pending_review");
+  });
+
+  it("prepares a persistent candidate and rollback workspace without touching or executing live code", () => {
+    const db = makeDb();
+    const dataRoot = mkdtempSync(join(tmpdir(), "sod-self-mod-workspace-"));
+    try {
+      const before = fs.readFileSync("README.md", "utf8");
+      const proposal = createSelfImprovementProposal(db.raw, {
+        title: "Review setup text", rationale: "A candidate wording change for owner review.",
+        files: [{ path: "README.md", content: before + "\nReview-only candidate.\n" }],
+        requesterId: "local-agent", requesterKind: "agent",
+      });
+      const workspace = prepareSelfImprovementWorkspace(db.raw, dataRoot, proposal.id);
+      const workspaceDir = join(dataRoot, workspace.workspacePath);
+      expect(workspace.verificationStatus).toBe("not_run");
+      expect(workspace.manifestHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(workspace.rollbackHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(fs.readFileSync(join(workspaceDir, "candidate", "README.md"), "utf8")).toContain("Review-only candidate.");
+      expect(fs.readFileSync(join(workspaceDir, "rollback", "README.md"), "utf8")).toBe(before);
+      expect(fs.readFileSync("README.md", "utf8")).toBe(before);
+      expect(fs.readFileSync(join(workspaceDir, "VERIFICATION_DISABLED.txt"), "utf8")).toContain("was not executed");
+
+      const repeated = prepareSelfImprovementWorkspace(db.raw, dataRoot, proposal.id);
+      expect(repeated).toEqual(workspace);
+      db.raw.prepare("DELETE FROM self_improvement_workspaces WHERE proposal_id = ?").run(proposal.id);
+      const recovered = prepareSelfImprovementWorkspace(db.raw, dataRoot, proposal.id);
+      expect(recovered.manifestHash).toBe(workspace.manifestHash);
+      expect(db.raw.prepare("SELECT COUNT(*) AS count FROM self_improvement_workspace_events WHERE proposal_id = ? AND event_type = 'workspace_recovered'").get(proposal.id)).toEqual({ count: 1 });
+      expect(db.raw.prepare("SELECT verification_status FROM self_improvement_workspaces WHERE proposal_id = ?").get(proposal.id)).toEqual({ verification_status: "not_run" });
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects stale source and tampered prepared artifacts", () => {
+    const db = makeDb();
+    const dataRoot = mkdtempSync(join(tmpdir(), "sod-self-mod-stale-"));
+    const fixtureDir = mkdtempSync(join(process.cwd(), ".self-mod-fixture-"));
+    const fixturePath = join(fixtureDir, "review.txt");
+    try {
+      fs.writeFileSync(fixturePath, "baseline\n");
+      const relative = `${fixtureDir.slice(process.cwd().length + 1)}/review.txt`;
+      const stale = createSelfImprovementProposal(db.raw, {
+        title: "Stale fixture", rationale: "Source changed after proposal.",
+        files: [{ path: relative, content: "candidate\n" }], requesterId: "local-agent", requesterKind: "agent",
+      });
+      fs.writeFileSync(fixturePath, "changed after review\n");
+      expect(() => prepareSelfImprovementWorkspace(db.raw, dataRoot, stale.id)).toThrow("live source has changed");
+
+      fs.writeFileSync(fixturePath, "baseline\n");
+      const valid = createSelfImprovementProposal(db.raw, {
+        title: "Tamper fixture", rationale: "Workspace integrity is rechecked.",
+        files: [{ path: relative, content: "safe candidate\n" }], requesterId: "local-agent", requesterKind: "agent",
+      });
+      const workspace = prepareSelfImprovementWorkspace(db.raw, dataRoot, valid.id);
+      fs.writeFileSync(join(dataRoot, workspace.workspacePath, "candidate", relative), "tampered\n");
+      expect(() => prepareSelfImprovementWorkspace(db.raw, dataRoot, valid.id)).toThrow("Candidate file integrity check failed");
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+      fs.rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 });

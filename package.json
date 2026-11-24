@@ -44,6 +44,7 @@
     "typecheck": "tsc --noEmit",
     "test:coverage": "vitest run --coverage",
     "test:offline": "vitest run --config vitest.offline.config.ts --pool=forks --maxWorkers=1",
+    "test:offline:groups": "node scripts/offline-test-groups.mjs",
     "test:security": "vitest run -t 'security|injection|policy'",
     "test:financial": "vitest run -t 'financial|spend|treasury'",
     "test:ci": "vitest run --reporter=verbose",

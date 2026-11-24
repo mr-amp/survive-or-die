@@ -33,8 +33,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm run build
-      - name: Run unit and integration tests
-        run: pnpm test
+      - name: Run offline unit and local integration tests in resumable groups
+        run: pnpm run test:offline:groups -- --group-size=6 --timeout-ms=180000 --results="${RUNNER_TEMP}/sod-offline-tests.json"
         timeout-minutes: 15
       - name: Run focused security and financial tests
         run: >-

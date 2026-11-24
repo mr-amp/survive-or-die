@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createDatabase } from "../state/database.js";
 import { createBusinessOpportunity, proposeBusinessExperiment, reviewBusinessExperiment, transitionBusinessOpportunity } from "../economics/opportunities.js";
 import { createTestConfig } from "./mocks.js";
+import { createSelfImprovementProposal } from "../self-mod/proposals.js";
 
 describe("authenticated dashboard business workflow", () => {
   it("protects business data and records the owner experiment review without executing it", async () => {
@@ -56,6 +57,38 @@ describe("authenticated dashboard business workflow", () => {
       expect(await pipeline.json()).toMatchObject({
         automaticFinancialExecutionEnabled: false,
         summary: { actualIncomeCents: 1250, actualExpenseCents: 0, actualProfitCents: 1250 },
+      });
+
+      const selfChange = createSelfImprovementProposal(db.raw, {
+        title: "Dashboard workspace check", rationale: "Prepare a review-only candidate and rollback snapshot.",
+        files: [{ path: "README.md", content: readFileSync("README.md", "utf8") + "\nReview candidate.\n" }],
+        requesterId: "local-agent", requesterKind: "agent",
+      });
+      const selfImprovementsPath = `${base}/api/self-improvements`;
+      expect((await fetch(selfImprovementsPath)).status).toBe(401);
+      const unauthorizedPreparation = await fetch(`${selfImprovementsPath}/${selfChange.id}/prepare-workspace`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      });
+      expect(unauthorizedPreparation.status).toBe(401);
+      const prepared = await fetch(`${selfImprovementsPath}/${selfChange.id}/prepare-workspace`, { method: "POST", headers, body: "{}" });
+      const preparedBody = await prepared.json() as any;
+      expect(prepared.status).toBe(200);
+      expect(preparedBody).toMatchObject({ executionEnabled: false, verificationStatus: "not_run" });
+      const proposalDetails = await fetch(`${selfImprovementsPath}/${selfChange.id}`, { headers });
+      const proposalBody = await proposalDetails.json() as any;
+      expect(proposalBody.activationEnabled).toBe(false);
+      expect(proposalBody.proposal.diffPreview).toContain("Review candidate.");
+      const page = await (await fetch(base, { headers })).text();
+      const inlineScript = page.match(/<script>([\s\S]*?)<\/script>/)?.[1];
+      expect(inlineScript).toBeTruthy();
+      expect(() => new Function(inlineScript!)).not.toThrow();
+      const staged = join(home, ".automaton", preparedBody.workspace.workspacePath, "candidate", "README.md");
+      expect(readFileSync(staged, "utf8")).toContain("Review candidate.");
+      const listed = await fetch(selfImprovementsPath, { headers });
+      expect((await listed.json() as any).items.find((item: any) => item.id === selfChange.id).workspace).toMatchObject({
+        manifestHash: preparedBody.workspace.manifestHash,
+        rollbackHash: preparedBody.workspace.rollbackHash,
+        verificationStatus: "not_run",
       });
     } finally {
       dashboard?.close();

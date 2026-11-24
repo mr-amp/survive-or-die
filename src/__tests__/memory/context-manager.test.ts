@@ -67,6 +67,14 @@ describe("createTokenCounter", () => {
     expect(counter.cache.size).toBe(sizeAfterFirst);
   });
 
+  it("uses a conservative bounded estimate for very large text without caching the payload", () => {
+    const counter = createTokenCounter();
+    const largeText = "x".repeat(500_000);
+
+    expect(counter.countTokens(largeText)).toBe(Math.ceil(largeText.length / 3.5));
+    expect(counter.cache.size).toBe(0);
+  });
+
   it("LRU cache limits to 10000 entries", () => {
     const counter = createTokenCounter();
 

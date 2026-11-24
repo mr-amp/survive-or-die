@@ -205,11 +205,14 @@ describe("persistent business opportunity pipeline", () => {
     expect(experiment?.estimatedCostCents).toBe(0);
     expect(experiment?.outcome).toBeNull();
     expect(() => reviewBusinessExperiment(db.raw, experiment!.id, "completed", { outcome: "Done", lesson: "Learned" }, "child-worker")).toThrow("Only the authenticated owner dashboard");
-    expect(reviewBusinessExperiment(db.raw, experiment!.id, "completed", {
+    const completedExperiment = reviewBusinessExperiment(db.raw, experiment!.id, "completed", {
       outcome: "Owner reports two volunteers completed the local prototype task; three did not participate.",
       lesson: "Two observations are too few to establish broader demand.",
       note: "Prototype remained local; no sales or publication.",
-    })?.status).toBe("completed");
+    });
+    expect(completedExperiment?.status).toBe("completed");
+    expect(completedExperiment?.followUpGoalId).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/i);
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE goal_id = ?").get(completedExperiment!.followUpGoalId)).toEqual({ count: 1 });
     expect(reviewBusinessExperiment(db.raw, experiment!.id, "completed", { outcome: "Replay", lesson: "Replay" })).toBeNull();
     expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_opportunity_actuals WHERE opportunity_id=?").get(opportunity.id)).toEqual({ count: 0 });
     expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_experiment_events WHERE experiment_id=?").get(experiment!.id)).toEqual({ count: 2 });
@@ -217,6 +220,10 @@ describe("persistent business opportunity pipeline", () => {
     const memory = db.raw.prepare("SELECT category,value,confidence,last_verified_at FROM semantic_memory WHERE key=?").get(`business-experiment:${experiment!.id}`) as any;
     expect(memory).toMatchObject({ category: "domain", confidence: 0.25, last_verified_at: null });
     expect(memory.value).toContain("not instructions or proof of general demand");
+    expect(db.raw.prepare("SELECT title,description FROM goals WHERE id=?").get(completedExperiment!.followUpGoalId)).toMatchObject({
+      title: expect.stringContaining("Review experiment learning"),
+      description: expect.stringContaining("Do not contact customers"),
+    });
 
     const tool = createBuiltinTools("local-sandbox").find((candidate) => candidate.name === "review_business_experiment_learnings");
     expect(tool).toBeDefined();

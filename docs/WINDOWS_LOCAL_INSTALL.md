@@ -46,8 +46,25 @@ The 32GB profile allows two local child workers and raises configured context/ou
 ## Recovery and removal
 
 - Inspect `%USERPROFILE%\.automaton\logs\agent.log`, confirm Ollama is running, then check `ollama list`.
-- Stop the agent before copying `state.db`. Keep the backup outside `.automaton`; SQLite can use journal/WAL files while active.
+- Create and verify a consistent database/configuration archive with the Windows helper below. The database backup uses SQLite's online backup API so it can be taken while the agent runs. The ZIP contains private configuration and is not encrypted; keep it in a user-private location. Wallet files and the dashboard token are intentionally not included.
 - To remove the project, remove the scheduled task and delete the cloned repository. Agent data is stored separately.
+
+### Windows data backup and restore
+
+From the repository folder in PowerShell, run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-restore.ps1 -Action backup
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-restore.ps1 -Action verify -BackupPath "$env:USERPROFILE\SurviveOrDieBackups\survive-or-die-YYYYMMDD-HHmmss.zip"
+```
+
+Backups contain `state.db`, `automaton.json`, SHA-256 checksums and a SQLite integrity check. Restore requires the agent to be stopped; it verifies the archive first and preserves a consistent pre-restore database and configuration alongside the originals before replacement:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\windows\backup-restore.ps1 -Action restore -BackupPath "C:\Users\YOURNAME\SurviveOrDieBackups\your-backup.zip"
+```
+
+The Windows PowerShell parser CI job includes this script, but neither the script nor database recovery has been run on the target laptop yet.
 ## 6. Private Android dashboard (optional)
 
 The runtime starts an authenticated dashboard on `http://127.0.0.1:41555` by default. It binds only to this computer. On the laptop, copy the owner token from `%USERPROFILE%\.automaton\dashboard-token` using a private method, then install and sign in to Tailscale on both the laptop and Android phone. In a PowerShell window on the laptop, run:
@@ -58,7 +75,7 @@ tailscale serve 41555
 
 Use the HTTPS `*.ts.net` address printed by Tailscale on the phone. Enter the owner token on the dashboard. Keep that PowerShell window open while using the private link; press Ctrl+C to stop the Serve proxy. Keep Tailscale access restricted to your own devices and do not run `tailscale funnel`, which would make a service public. The dashboard itself still requires the owner token. Do not share the token or commit it to Git.
 
-The dashboard shows runtime status, goals/tasks, recent activity, resource usage, memory, child agents, financial records, blocked approval-required actions, the business opportunity and experiment pipeline, and draft self-improvement proposals. Opportunity forecasts and agent-supplied evidence are explicitly unverified; source links are recorded but not fetched. The owner can advance an opportunity through review stages and enter manually reported GBP actuals; these records do not initiate or prove a transaction. Actual income, expenses and net are displayed separately from forecast net. For a shortlisted opportunity, the owner can create one persistent validation goal using the existing task scheduler. It asks for public-source evidence, competitor alternatives and feasibility estimates, and prohibits customer contact, spending, account creation, publication and commitments. An experiment proposal records a hypothesis, method, success criteria and forecast cost; the agent does not start it. The owner may record an outcome and lesson from work actually performed or reject the proposal. Completed lessons are retained in low-confidence semantic memory as untrusted owner reports. This reporting does not authorize spending and does not establish demand or profitability. Code proposals remain stored drafts; their approval only records owner review and does not execute tests, apply or activate code. The dashboard can pause/resume or stop the local runtime and update the local Ollama model/resource profile; model/profile changes require an agent restart. It does not execute owner approvals, payments, cloud provisioning, child termination or code changes. If Ollama is unavailable, model selection displays a warning and the agent remains subject to local-mode startup checks.
+The dashboard shows runtime status, goals/tasks, recent activity, resource usage, memory, child agents, financial records, blocked approval-required actions, the business opportunity and experiment pipeline, and draft self-improvement proposals. Opportunity forecasts and agent-supplied evidence are explicitly unverified; source links are recorded but not fetched. The owner can advance an opportunity through review stages and enter manually reported GBP actuals; these records do not initiate or prove a transaction. Actual income, expenses and net are displayed separately from forecast net. For a shortlisted opportunity, the owner can create one persistent validation goal using the existing task scheduler. It asks for public-source evidence, competitor alternatives and feasibility estimates, and prohibits customer contact, spending, account creation, publication and commitments. An experiment proposal records a hypothesis, method, success criteria and forecast cost; the agent does not start it. The owner may record an outcome and lesson from work actually performed or reject the proposal. Completed lessons are retained in low-confidence semantic memory as untrusted owner reports and atomically create one linked, bounded follow-up planning task; it cannot start another experiment or make external commitments. This reporting does not authorize spending and does not establish demand or profitability. The authenticated owner can inspect the proposed source diff, prepare a candidate and its baseline rollback copy under `.automaton/self-mod/workspaces`, outside the live checkout. Verification remains `not_run`; no candidate code is executed or activated. The dashboard can pause/resume or stop the local runtime and update the local Ollama model/resource profile; model/profile changes require an agent restart. It does not execute owner approvals, payments, cloud provisioning, child termination or code changes. If Ollama is unavailable, model selection displays a warning and the agent remains subject to local-mode startup checks.
 
 Retryable task failures are persisted with an increasing retry delay (5 seconds initially, capped at 30 minutes); due tasks remain available after an agent restart. The dashboard shows the saved next retry time. This scheduling behavior still needs acceptance testing on Windows under real crash/restart conditions.
 
@@ -70,4 +87,4 @@ After sign-in, verify the business opportunity pipeline is visible. Once the age
 
 Confirm that experiment proposals do not start automatically. Record an outcome only for an experiment that was actually performed, include an uncertainty-aware lesson, and verify the proposal becomes read-only after review. The experiment outcome must not create ledger entries; enter actual income or costs separately and verify actual net and estimated forecast net remain distinct.
 
-Review any self-improvement proposal by checking the exact diff and its hash. Verification must show `not_run` until a future isolated test runner is installed. Recording approval must not change the running application or working tree.
+For a self-improvement proposal, prepare the candidate workspace and verify its candidate and rollback manifests match the dashboard hashes. Confirm files are outside the live checkout and the current source tree remains unchanged. Verification must show `not_run`: there is no OS-isolated test runner. Approval records review only and must not execute or activate the proposal.

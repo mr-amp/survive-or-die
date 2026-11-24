@@ -8,6 +8,10 @@ import { getEncoding, type Tiktoken } from "js-tiktoken";
 import type { ChatMessage } from "../types.js";
 
 const MAX_TOKEN_CACHE_SIZE = 10_000;
+// Full BPE encoding of very large tool output or recovered history can be
+// disproportionately expensive on low-memory laptops. Keep exact estimates
+// for normal prompts and use a conservative linear bound above this size.
+const MAX_EXACT_TOKEN_COUNT_CHARS = 8_000;
 const DEFAULT_RESERVE_TOKENS = 4_096;
 const COMPRESSION_HEADROOM_RATIO = 0.1;
 const MAX_EVENT_CONTENT_CHARS = 220;
@@ -140,6 +144,9 @@ export function createTokenCounter(): TokenCounter {
 
   const countTokens = (text: string, model?: string): number => {
     const normalizedText = text ?? "";
+    if (normalizedText.length > MAX_EXACT_TOKEN_COUNT_CHARS) {
+      return Math.ceil(normalizedText.length / 3.5);
+    }
     const key = formatCacheKey(normalizedText, model);
 
     const cached = cache.get(key);

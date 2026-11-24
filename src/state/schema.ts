@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 17;
+export const SCHEMA_VERSION = 19;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -829,6 +829,42 @@ export const MIGRATION_V17 = `
     created_at TEXT NOT NULL
   );
   CREATE INDEX idx_business_experiment_events ON business_experiment_events(experiment_id, created_at DESC);
+`;
+
+export const MIGRATION_V18 = `
+  -- Schema version: 18. Preserve isolated self-improvement workspaces and rollback material.
+  CREATE TABLE self_improvement_workspaces (
+    id TEXT PRIMARY KEY,
+    proposal_id TEXT NOT NULL UNIQUE REFERENCES self_improvement_proposals(id),
+    workspace_path TEXT NOT NULL,
+    manifest_json TEXT NOT NULL,
+    manifest_hash TEXT NOT NULL,
+    rollback_manifest_json TEXT NOT NULL,
+    rollback_hash TEXT NOT NULL,
+    verification_status TEXT NOT NULL DEFAULT 'not_run'
+      CHECK(verification_status IN ('not_run','passed','failed')),
+    verification_summary TEXT NOT NULL,
+    prepared_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE self_improvement_workspace_events (
+    id TEXT PRIMARY KEY,
+    proposal_id TEXT NOT NULL REFERENCES self_improvement_proposals(id),
+    event_type TEXT NOT NULL CHECK(event_type IN ('workspace_prepared','workspace_recovered','verification_blocked')),
+    actor_kind TEXT NOT NULL CHECK(actor_kind IN ('owner','system')),
+    actor_id TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_self_improvement_workspace_events ON self_improvement_workspace_events(proposal_id, created_at DESC);
+`;
+
+export const MIGRATION_V19 = `
+  -- Schema version: 19. Link a completed, owner-reported business experiment to
+  -- one persistent follow-up goal in the existing task graph.
+  ALTER TABLE business_experiments ADD COLUMN follow_up_goal_id TEXT REFERENCES goals(id);
+  CREATE UNIQUE INDEX idx_business_experiment_follow_up_goal
+    ON business_experiments(follow_up_goal_id) WHERE follow_up_goal_id IS NOT NULL;
 `;
 
 export const MIGRATION_V10 = `
