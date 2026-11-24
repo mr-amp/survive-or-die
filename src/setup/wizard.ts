@@ -115,12 +115,18 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     console.log(chalk.yellow("  Warning: Anthropic keys usually start with sk-ant-. Saving anyway."));
   }
 
-  const ollamaInput = await promptWithDefault("Ollama base URL", "http://localhost:11434");
+  const ollamaInput = localOnly
+    ? await promptWithDefault("Ollama base URL", "http://localhost:11434")
+    : await promptOptional("Ollama base URL (optional)");
   const ollamaBaseUrl = ollamaInput || undefined;
-  const profileInput = await promptOptional("Memory profile (16gb or 32gb) [16gb]");
+  const profileInput = localOnly
+    ? await promptOptional("Memory profile (16gb or 32gb) [16gb]")
+    : "";
   const localProfile: "16gb" | "32gb" = profileInput.trim().toLowerCase() === "32gb" ? "32gb" : "16gb";
-  const modelInput = await promptWithDefault("Ollama model", "llama3.1:8b");
-  const inferenceModel = modelInput || "llama3.1:8b";
+  const modelInput = localOnly
+    ? await promptWithDefault("Ollama model", "llama3.1:8b")
+    : "";
+  const inferenceModel = localOnly ? modelInput || "llama3.1:8b" : "gpt-5.2";
   if (ollamaBaseUrl) {
     console.log(chalk.green(`  Ollama URL saved: ${ollamaBaseUrl}`));
   }
