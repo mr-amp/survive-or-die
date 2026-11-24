@@ -59,12 +59,16 @@ class SlowHarness implements AgentHarness {
   readonly id = "slow";
   readonly description = "slow harness";
   static release: (() => void) | null = null;
+  static abortSignal: AbortSignal | null = null;
 
-  async initialize(): Promise<void> {}
+  async initialize(_task: TaskNode, context: HarnessContext): Promise<void> {
+    SlowHarness.abortSignal = context.abortSignal;
+  }
   async execute(): Promise<TaskResult> {
     await new Promise<void>((resolve) => {
       SlowHarness.release = resolve;
     });
+    if (SlowHarness.abortSignal?.aborted) throw new Error("Harness execution aborted by abort signal");
     return { success: true, output: "slow done", artifacts: [], costCents: 0, duration: 1 };
   }
   getToolDefs(): HarnessTool[] {
@@ -136,6 +140,7 @@ describe("orchestration/LocalWorkerPool harness integration", () => {
     insertGoal(db, "goal-1");
     SuccessHarness.capturedContext = null;
     SlowHarness.release = null;
+    SlowHarness.abortSignal = null;
     OrchestratorBudgetHarness.capturedBudget = null;
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "local-worker-harness-home-"));
   });
@@ -219,6 +224,31 @@ describe("orchestration/LocalWorkerPool harness integration", () => {
     SlowHarness.release?.();
     await waitFor(async () => pool.getActiveCount() === 0);
     expect(pool.getActiveCount()).toBe(0);
+  });
+
+  it("stops one local worker and leaves its task persisted for retry", async () => {
+    registry.register("custom-slow", SlowHarness);
+    const pool = createPool();
+    const task = insertTask(db, {
+      id: "task-stop-worker",
+      goalId: "goal-1",
+      agentRole: "custom-slow",
+      status: "assigned",
+      assignedTo: null,
+      maxRetries: 1,
+    });
+
+    pool.spawn(task);
+    await waitFor(async () => SlowHarness.abortSignal !== null);
+    expect(pool.stopTask(task.id)).toBe(true);
+    expect(SlowHarness.abortSignal?.aborted).toBe(true);
+    SlowHarness.release?.();
+    await waitFor(async () => pool.getActiveCount() === 0);
+
+    const row = getTaskById(db, task.id);
+    expect(row?.status).toBe("pending");
+    expect(row?.retryCount).toBe(1);
+    expect(pool.stopTask(task.id)).toBe(false);
   });
 
   it("gives orchestrator-role harnesses a 50-turn default budget", async () => {

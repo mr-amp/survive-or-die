@@ -48,7 +48,7 @@ interface LocalWorkerConfig {
 }
 
 export class LocalWorkerPool {
-  private activeWorkers = new Map<string, { promise: Promise<void>; abortController: AbortController }>();
+  private activeWorkers = new Map<string, { promise: Promise<void>; abortController: AbortController; taskId: string }>();
 
   constructor(private readonly config: LocalWorkerConfig) {}
 
@@ -88,8 +88,15 @@ export class LocalWorkerPool {
         this.activeWorkers.delete(workerId);
       });
 
-    this.activeWorkers.set(workerId, { promise: workerPromise, abortController });
+    this.activeWorkers.set(workerId, { promise: workerPromise, abortController, taskId: task.id });
     return { address, name: workerName, sandboxId: workerId };
+  }
+
+  stopTask(taskId: string): boolean {
+    const worker = [...this.activeWorkers.values()].find((active) => active.taskId === taskId);
+    if (!worker) return false;
+    worker.abortController.abort();
+    return true;
   }
 
   getActiveCount(): number {

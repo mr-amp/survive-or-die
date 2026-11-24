@@ -398,6 +398,7 @@ async function run(): Promise<void> {
 
   // Handle graceful shutdown
   let emergencyStopRequested = false;
+  let stopLocalWorker: ((taskId: string) => boolean) | undefined;
   let dashboard: ReturnType<typeof startDashboardServer> | undefined;
   const shutdown = () => {
     logger.info(`[${new Date().toISOString()}] Shutting down...`);
@@ -417,6 +418,7 @@ async function run(): Promise<void> {
           emergencyStopRequested = true;
           insertWakeEvent(db.raw, "dashboard", "Emergency stop requested by owner");
         },
+        onStopLocalWorker: (taskId) => stopLocalWorker?.(taskId) ?? false,
       });
     } catch (error) {
       logger.error("Private dashboard failed to start; the agent will continue without it.", error instanceof Error ? error : undefined);
@@ -460,6 +462,7 @@ async function run(): Promise<void> {
         policyEngine,
         spendTracker,
         ollamaBaseUrl,
+        onLocalWorkerPoolReady: (stopTask) => { stopLocalWorker = stopTask; },
         onStateChange: (state: AgentState) => {
           logger.info(`[${new Date().toISOString()}] State: ${state}`);
         },

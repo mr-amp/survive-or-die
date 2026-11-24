@@ -84,6 +84,7 @@ export interface AgentLoopOptions {
   spendTracker?: SpendTrackerInterface;
   onStateChange?: (state: AgentState) => void;
   onTurnComplete?: (turn: AgentTurn) => void;
+  onLocalWorkerPoolReady?: (stopTask: (taskId: string) => boolean) => void;
   ollamaBaseUrl?: string;
 }
 
@@ -225,6 +226,7 @@ export async function runAgentLoop(
         spendTracker,
       });
       workerPool = initializedWorkerPool;
+      options.onLocalWorkerPoolReady?.((taskId) => initializedWorkerPool.stopTask(taskId));
 
       orchestrator = new Orchestrator({
         db: db.raw,
