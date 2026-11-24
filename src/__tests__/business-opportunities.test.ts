@@ -132,8 +132,9 @@ describe("persistent business opportunity pipeline", () => {
     expect(db.raw.prepare("SELECT COUNT(*) AS count FROM goals WHERE id = ?").get(plan?.goalId)).toEqual({ count: 1 });
     expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE goal_id = ?").get(plan?.goalId)).toEqual({ count: 3 });
     const tasks = db.raw.prepare("SELECT title,description,status FROM task_graph WHERE goal_id = ? ORDER BY priority DESC").all(plan?.goalId) as Array<{title:string;description:string;status:string}>;
-    expect(tasks.every((task) => task.status === "pending")).toBe(true);
-    expect(tasks[2].description).toContain("Do not spend or make commitments");
+    expect(tasks.slice(0, 2).every((task) => task.status === "pending")).toBe(true);
+    expect(tasks[2].status).toBe("blocked");
+    expect(tasks[2].description.toLowerCase()).toContain("do not spend or make commitments");
     expect(listBusinessOpportunities(db.raw)[0].validationGoalId).toBe(plan?.goalId);
   });
 });

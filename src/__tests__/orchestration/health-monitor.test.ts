@@ -675,12 +675,16 @@ describe("orchestration/health-monitor", () => {
       expect(actions[0].reason).toContain("pending");
 
       // Verify task was reset to pending in the DB
-      const task = db.prepare("SELECT status, assigned_to FROM task_graph WHERE id = 't1'").get() as {
+      const task = db.prepare("SELECT status, assigned_to AS assignedTo, retry_count AS retryCount, next_attempt_at AS nextAttemptAt FROM task_graph WHERE id = 't1'").get() as {
         status: string;
-        assigned_to: string | null;
+        assignedTo: string | null;
+        retryCount: number;
+        nextAttemptAt: string | null;
       };
       expect(task.status).toBe("pending");
-      expect(task.assigned_to).toBeNull();
+      expect(task.assignedTo).toBeNull();
+      expect(task.retryCount).toBe(1);
+      expect(Date.parse(task.nextAttemptAt ?? "") - Date.now()).toBeGreaterThan(0);
     });
 
     it("reassign fails task when max retries exceeded", async () => {
@@ -724,8 +728,14 @@ describe("orchestration/health-monitor", () => {
       expect(actions[0].reason).toContain("max retries");
 
       // Verify task was marked failed
-      const task = db.prepare("SELECT status FROM task_graph WHERE id = 't1'").get() as { status: string };
+      const task = db.prepare("SELECT status, next_attempt_at AS nextAttemptAt, assigned_to AS assignedTo FROM task_graph WHERE id = 't1'").get() as {
+        status: string;
+        nextAttemptAt: string | null;
+        assignedTo: string | null;
+      };
       expect(task.status).toBe("failed");
+      expect(task.nextAttemptAt).toBeNull();
+      expect(task.assignedTo).toBeNull();
     });
 
     it("returns multiple actions for multiple unhealthy agents", async () => {

@@ -529,20 +529,19 @@ export class Orchestrator {
     }
 
     // Recover stale tasks: workers that died (process restart, sandbox crash)
-    // leave tasks stuck in 'assigned' forever. Detect and reset them.
+    // leave tasks stuck in 'assigned' forever. Count this as a failed attempt
+    // so the shared retry cap and persisted backoff also apply after restart.
     if (this.params.isWorkerAlive) {
       const assignedTasks = getTasksByGoal(this.params.db, goal.id)
         .filter((t) => t.status === "assigned" && t.assignedTo);
       for (const task of assignedTasks) {
         const alive = this.params.isWorkerAlive(task.assignedTo!);
         if (!alive) {
-          logger.warn("Recovering stale task from dead worker", {
+          logger.warn("Recovering stale task from dead worker with bounded retry", {
             taskId: task.id,
             worker: task.assignedTo,
           });
-          this.params.db.prepare(
-            "UPDATE task_graph SET status = 'pending', assigned_to = NULL, started_at = NULL WHERE id = ?",
-          ).run(task.id);
+          failTask(this.params.db, task.id, "Assigned worker disappeared before task completion.", true);
         }
       }
     }

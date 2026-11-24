@@ -78,6 +78,7 @@ function makeOrchestrator(
     inference?: ReturnType<typeof makeInference>;
     config?: any;
     messaging?: ColonyMessaging;
+    isWorkerAlive?: (address: string) => boolean;
   } = {},
 ): Orchestrator {
   const { messaging } = makeMessaging(db);
@@ -89,6 +90,7 @@ function makeOrchestrator(
     inference: overrides.inference ?? (makeInference() as any),
     identity: IDENTITY,
     config: overrides.config ?? {},
+    isWorkerAlive: overrides.isWorkerAlive,
   });
 }
 
@@ -309,6 +311,26 @@ describe("orchestration/Orchestrator", () => {
       // handleFailedPhase marks the goal as failed and resets to idle
       // so the orchestrator can pick up other active goals.
       expect(result.phase).toBe("idle");
+    });
+
+    it("recovers an assigned task after worker loss using persisted retry backoff", async () => {
+      const goalId = insertGoal(db);
+      const taskId = insertTask(db, { goalId, status: "assigned", assignedTo: "local://lost-worker" });
+      setOrchestratorState(db, { phase: "executing", goalId, replanCount: 0, failedTaskId: null, failedError: null });
+      const orc = makeOrchestrator(db, { isWorkerAlive: () => false });
+
+      await orc.tick();
+
+      const task = db.prepare("SELECT status, assigned_to AS assignedTo, retry_count AS retryCount, next_attempt_at AS nextAttemptAt FROM task_graph WHERE id = ?").get(taskId) as {
+        status: string;
+        assignedTo: string | null;
+        retryCount: number;
+        nextAttemptAt: string | null;
+      };
+      expect(task.status).toBe("pending");
+      expect(task.assignedTo).toBeNull();
+      expect(task.retryCount).toBe(1);
+      expect(Date.parse(task.nextAttemptAt ?? "") - Date.now()).toBeGreaterThan(0);
     });
   });
 

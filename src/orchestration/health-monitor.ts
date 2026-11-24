@@ -2,6 +2,7 @@ import { createLogger } from "../observability/logger.js";
 import type { AutomatonDatabase, ChildAutomaton, ChildStatus } from "../types.js";
 import type { ColonyMessaging } from "./messaging.js";
 import type { AgentTracker, FundingProtocol } from "./types.js";
+import { failTask } from "./task-graph.js";
 
 const logger = createLogger("orchestration.health-monitor");
 
@@ -386,38 +387,15 @@ export class HealthMonitor {
       };
     }
 
-    const nextRetry = task.retryCount + 1;
-    const replacement = this.selectReplacementAgent(agent.address);
+    const hasRetryBudget = task.retryCount < task.maxRetries;
+    failTask(
+      this.db.raw,
+      taskId,
+      `Stuck execution detected for ${agent.address}; task returned to the scheduler.`,
+      hasRetryBudget,
+    );
 
-    const status = replacement ? "assigned" : "pending";
-    const reason = replacement
-      ? `task ${taskId} reassigned to ${replacement.address}`
-      : `task ${taskId} reset to pending (no replacement available)`;
-
-    const resultPayload = {
-      type: "stuck_task_cancelled",
-      cancelledBy: "health_monitor",
-      sourceAgent: agent.address,
-      replacementAgent: replacement?.address ?? null,
-      at: new Date().toISOString(),
-      reason: "stuck execution detected",
-    };
-
-    const shouldFail = nextRetry > task.maxRetries;
-
-    if (shouldFail) {
-      this.db.raw.prepare(
-        `UPDATE task_graph
-         SET status = 'failed',
-             completed_at = ?,
-             result = ?
-         WHERE id = ?`,
-      ).run(
-        new Date().toISOString(),
-        JSON.stringify({ ...resultPayload, reason: "max retries exceeded during reassignment" }),
-        taskId,
-      );
-
+    if (!hasRetryBudget) {
       return {
         type: "reassign",
         agentAddress: agent.address,
@@ -426,27 +404,14 @@ export class HealthMonitor {
       };
     }
 
-    this.db.raw.prepare(
-      `UPDATE task_graph
-       SET status = ?,
-           assigned_to = ?,
-           started_at = NULL,
-           completed_at = NULL,
-           retry_count = ?,
-           result = ?
-       WHERE id = ?`,
-    ).run(
-      status,
-      replacement?.address ?? null,
-      nextRetry,
-      JSON.stringify(resultPayload),
-      taskId,
-    );
+    const nextAttempt = this.db.raw
+      .prepare("SELECT next_attempt_at AS nextAttemptAt FROM task_graph WHERE id = ?")
+      .get(taskId) as { nextAttemptAt: string | null } | undefined;
 
     return {
       type: "reassign",
       agentAddress: agent.address,
-      reason,
+      reason: `task ${taskId} returned to pending with retry backoff until ${nextAttempt?.nextAttemptAt ?? "the next scheduler tick"}`,
       success: true,
     };
   }
@@ -486,22 +451,6 @@ export class HealthMonitor {
     }
   }
 
-  private selectReplacementAgent(sourceAddress: string): { address: string; name: string } | null {
-    const idle = this.agentTracker.getIdle().find((agent) => agent.address !== sourceAddress);
-    if (idle) {
-      return {
-        address: idle.address,
-        name: idle.name,
-      };
-    }
-
-    const best = this.agentTracker.getBestForTask("generalist");
-    if (!best || best.address === sourceAddress) {
-      return null;
-    }
-
-    return best;
-  }
 }
 
 function latestIso(candidates: Array<string | null | undefined>): string | null {
