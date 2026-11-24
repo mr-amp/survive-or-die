@@ -1,9 +1,23 @@
 name: CI
-on: [push, pull_request]
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
+    name: Typecheck, build and tests (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         node-version: [20, 22]
     steps:
@@ -11,36 +25,58 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
       - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
-      - name: Run tests
+      - run: pnpm run build
+      - name: Run unit and integration tests
+        run: pnpm test
+        timeout-minutes: 15
+      - name: Run focused security and financial tests
+        run: >-
+          pnpm exec vitest run
+          src/__tests__/owner-approval.test.ts
+          src/__tests__/tools-security.test.ts
+          src/__tests__/financial.test.ts
         timeout-minutes: 10
-        run: |
-          set +e
-          timeout 300 pnpm test
-          RC=$?
-          set -e
-          # Exit code 124 means timeout killed the process (vitest hung after tests completed)
-          if [ $RC -eq 124 ]; then echo "::warning::vitest process hung after tests, killed by timeout"; exit 0; fi
-          exit $RC
-      - name: Run security tests
-        timeout-minutes: 10
-        run: |
-          set +e
-          timeout 180 pnpm test -- --grep "security|injection|policy|financial"
-          RC=$?
-          set -e
-          if [ $RC -eq 124 ]; then echo "::warning::vitest process hung after tests, killed by timeout"; exit 0; fi
-          exit $RC
 
-  security-audit:
+  windows-scripts:
+    name: Validate Windows PowerShell scripts
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse all installer and recovery scripts
+        shell: pwsh
+        run: |
+          $scripts = Get-ChildItem -Path scripts/windows -Filter '*.ps1' -File
+          if ($scripts.Count -eq 0) { throw 'No Windows scripts were found.' }
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error "$($script.Name): $($_.Message) at line $($_.Extent.StartLineNumber)" }
+              throw "PowerShell parsing failed for $($script.Name)."
+            }
+            Write-Host "Parsed $($script.Name)"
+          }
+
+  dependency-audit:
+    name: Dependency vulnerability audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
       - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
       - run: pnpm install --frozen-lockfile
-      - run: pnpm audit --audit-level=high || true
+      - run: pnpm audit --audit-level=high
