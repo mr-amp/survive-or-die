@@ -1,2 +1,13 @@
 packages:
   - "packages/*"
+
+onlyBuiltDependencies:
+  - better-sqlite3
+  - esbuild
+
+overrides:
+  "rollup@^4.0.0": "^4.59.0"
+  "postcss@^8.0.0": "^8.5.23"
+  "nanoid@^3.0.0": "^3.3.18"
+  "source-map-js@^1.0.0": "^1.2.2"
+  "ws@^8.0.0": "^8.21.0"

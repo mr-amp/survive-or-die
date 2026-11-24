@@ -14,7 +14,7 @@ import {
 } from "viem";
 import { base, baseSepolia } from "viem/chains";
 import { ResilientHttpClient } from "./http-client.js";
-import type { ChainType } from "../identity/chain.js";
+import { isValidSolanaAddress, type ChainType } from "../identity/chain.js";
 
 const x402HttpClient = new ResilientHttpClient();
 
@@ -204,39 +204,110 @@ export async function getUsdcBalance(
 }
 
 /**
- * Get the USDC balance on Solana using @solana/web3.js.
+ * Get the USDC balance from the configured Solana JSON-RPC endpoint.
  */
 async function getSolanaUsdcBalance(address: string): Promise<number> {
   try {
-    const { Connection, PublicKey } = await import("@solana/web3.js");
+    if (!isValidSolanaAddress(address)) {
+      throw new Error("Invalid Solana owner address.");
+    }
     const rpcUrl = process.env.SOLANA_RPC_URL || "https://api.mainnet-beta.solana.com";
-    const connection = new Connection(rpcUrl, "confirmed");
-    const ownerPubkey = new PublicKey(address);
-    const mintPubkey = new PublicKey(SOLANA_USDC_MINT);
-
-    // Find associated token account for USDC
-    const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-      ownerPubkey,
-      { mint: mintPubkey },
-    );
-
-    if (tokenAccounts.value.length === 0) {
-      return 0;
+    const endpoint = new URL(rpcUrl);
+    if ((endpoint.protocol !== "https:" && endpoint.protocol !== "http:") || endpoint.username || endpoint.password) {
+      throw new Error("SOLANA_RPC_URL must be an HTTP(S) URL without embedded credentials.");
+    }
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "survive-or-die-usdc-balance",
+        method: "getTokenAccountsByOwner",
+        params: [address, { mint: SOLANA_USDC_MINT }, { encoding: "jsonParsed", commitment: "confirmed" }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!response.ok) {
+      throw new Error(`Solana RPC returned HTTP ${response.status}.`);
+    }
+    const payload = await readBoundedJson(response);
+    if (!isRecord(payload) || payload.jsonrpc !== "2.0" || payload.id !== "survive-or-die-usdc-balance") {
+      throw new Error("Solana RPC returned an invalid JSON-RPC response.");
+    }
+    if (isRecord(payload.error)) {
+      const message = typeof payload.error.message === "string" ? payload.error.message.slice(0, 300) : "RPC error";
+      throw new Error(`Solana RPC error: ${message}`);
+    }
+    if (!isRecord(payload.result) || !Array.isArray(payload.result.value)) {
+      throw new Error("Solana RPC response did not contain token accounts.");
     }
 
-    // Sum all USDC token accounts (usually just one)
-    let totalBalance = 0;
-    for (const account of tokenAccounts.value) {
-      const parsed = account.account.data.parsed;
-      if (parsed?.info?.tokenAmount?.uiAmount != null) {
-        totalBalance += parsed.info.tokenAmount.uiAmount;
+    let totalAtomic = 0n;
+    for (const account of payload.result.value) {
+      if (!isRecord(account) || !isRecord(account.account) || !isRecord(account.account.data) || !isRecord(account.account.data.parsed)) {
+        throw new Error("Solana RPC returned an unparsed token account.");
       }
+      const info = account.account.data.parsed.info;
+      if (!isRecord(info) || !isRecord(info.tokenAmount)) {
+        throw new Error("Solana RPC returned malformed token account data.");
+      }
+      if (info.mint !== SOLANA_USDC_MINT || info.owner !== address) {
+        throw new Error("Solana RPC returned an account outside the requested owner and mint.");
+      }
+      const amount = info.tokenAmount.amount;
+      if (info.tokenAmount.decimals !== 6 || typeof amount !== "string" || !/^\d+$/.test(amount)) {
+        throw new Error("Solana RPC returned an invalid USDC token amount.");
+      }
+      totalAtomic += BigInt(amount);
     }
-
-    return totalBalance;
-  } catch (err: any) {
-    throw new Error(`Solana USDC balance check failed: ${err?.message || String(err)}`);
+    if (totalAtomic > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new Error("Solana USDC balance exceeds the supported numeric range.");
+    }
+    return Number(totalAtomic) / 1_000_000;
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Solana USDC balance check failed: ${message}`);
   }
+}
+
+const MAX_SOLANA_RPC_RESPONSE_BYTES = 256 * 1024;
+
+async function readBoundedJson(response: Response): Promise<unknown> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_SOLANA_RPC_RESPONSE_BYTES) {
+    throw new Error("Solana RPC response exceeded the 256KB limit.");
+  }
+  if (!response.body) throw new Error("Solana RPC returned an empty response.");
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    totalBytes += value.byteLength;
+    if (totalBytes > MAX_SOLANA_RPC_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw new Error("Solana RPC response exceeded the 256KB limit.");
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch {
+    throw new Error("Solana RPC returned invalid JSON.");
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

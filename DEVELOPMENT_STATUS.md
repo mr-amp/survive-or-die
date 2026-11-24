@@ -10,14 +10,32 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 - Owner approval requests with exact action and parameter hashes, pending-request deduplication, bounded expiry, decision/event history, cancellation, revocation and self-review rejection.
 - Protected actions remain denied by the policy engine. The dashboard can record an owner decision, but no approved action executor exists; real financial, paid-cloud, publication and commercial execution therefore remains disabled.
 - Self-modification path protections cover the live runtime, policy/approval/dashboard/database/resource files, package manifest, tool manager and safety controls. Direct live self-modification actions are also blocked by the owner-approval policy.
+- Solana USDC balance reads use bounded JSON-RPC with address/account validation and timeouts; the large SDK is no longer needed for that one lookup.
+- Dependency remediation removed unused `simple-git` and `gray-matter`, removed `@solana/web3.js` after replacing its one runtime use, updated the development test/build toolchain, and added only scoped compatible transitive overrides.
 
 ## Verified in this checkpoint
 
 - Frozen pnpm dependency installation completed with pnpm 10.28.1 on Node 24.22.3.
 - `pnpm run typecheck` passed.
 - `pnpm run build` passed.
-- Six focused test files passed: 108 tests covering approval storage, denied-tool integration, dashboard input guards, path protection and tool security.
+- Seventeen focused test files passed: 314 tests covering approval storage, denied-tool integration, dashboard, security, financial policy, Solana RPC validation, local worker cancellation, task graph, heartbeat scheduling, low-compute operation and offline integration flows.
+- `pnpm audit --audit-level=low` and `pnpm audit --prod --audit-level=low` report no known vulnerabilities for the current lockfile.
 - `git diff --check` passed after the final status-file addition.
+
+## Security audit resolution
+
+The starting lockfile reported 46 findings: 5 critical, 18 high, 21 moderate and 2 low. The findings fell into these dependency/exposure groups:
+
+- `simple-git` was a direct production dependency with multiple Git-configuration/option parsing command-execution advisories. Repository source did not import it, so it was removed rather than upgraded across a major version.
+- `gray-matter` was a direct production dependency with no source imports; its `js-yaml` 3.x dependency carried CPU denial-of-service advisories. It was removed.
+- `@solana/web3.js` was a direct production dependency used only for the Solana USDC balance query. Its Jayson, `rpc-websockets`, `ws`, `uuid` and `stream-json` tree accounted for multiple production findings. The single use is now a bounded JSON-RPC call with a 10-second timeout, 256KB response cap, valid owner/mint checks and integer amount validation; the SDK was removed.
+- `yaml` is used by runtime configuration/skill parsing and had a nested-collection stack-overflow advisory. It was updated to 2.9.1.
+- `ws` was reachable through production libraries including viem and SIWE/ethers, with memory-exhaustion findings. A scoped compatible 8.x update resolves the affected runtime path.
+- Vitest was a direct development dependency with a critical arbitrary-file/code-execution advisory in its UI server plus additional mocker advisories. It was upgraded to 4.1.12 (Node 20+). The test suite uses `vitest run`, not the vulnerable UI server.
+- Vite/Rollup/PostCSS/nanoid/source-map findings were in the development toolchain, not the shipped agent runtime. Vite was updated to 6.4.6 and compatible 4.x/8.x/3.x/1.x fixes are constrained by narrow workspace overrides.
+- `tsx`/esbuild carried a low-severity Windows development-server file-read advisory; both were updated to patched versions (tsx 4.23.15, esbuild 0.28.2).
+
+The automatic audit fix was not used. It proposed broad overrides including major-version jumps. Instead, unused packages were removed, direct dependencies were upgraded deliberately, and only compatible patch/minor transitive ranges were constrained. Current all-dependency and production audits both report no known advisories at low severity or higher. Compatibility on Node 20 and Windows still needs CI/laptop acceptance.
 
 ## Unverified implementations
 
@@ -30,7 +48,7 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 ## Outstanding development
 
 - Obtain an Actions run and fix any verified CI failures; determine or enable repository workflow permissions through GitHub owner settings if required.
-- Review and remediate the dependency audit findings without forcing unverified major-version overrides. Current audit reported 46 advisories (5 critical, 18 high, 21 moderate, 2 low); the automatic override proposal was discarded because it included major-version changes that were not compatibility-tested.
+- Repeat dependency audits as part of CI and review future transitive changes. The prior lockfile had 46 advisories (5 critical, 18 high, 21 moderate, 2 low); the current lockfile audit returns none at low severity or higher.
 - Build isolated self-improvement workspaces, diff/test proposal review, approval-gated activation and rollback. Current protections do not constitute that complete proposal lifecycle.
 - Add full dashboard workflows for persistent goals, business opportunity review, resource history and self-improvement proposals.
 - Extend persistent worker identities, bounded delegation and parent/child progress/result messaging.
@@ -39,10 +57,10 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 
 ## Known issues and external blockers
 
-- The full test run was not completed: automatic tool review blocked the run after an integration test attempted an outbound request to `taskmarket.dev`. The test was not bypassed or retried through another path.
+- The full Vitest suite was not run. A previous attempt was blocked after the test runner was flagged for a request to `taskmarket.dev`; a repository-wide source search did not identify that hostname in test code. The attempted external test remains unidentified, and no bypass or network-enabled rerun was made. This checkpoint instead ran 17 reviewed local test files.
 - The available GitHub connector returned no PR-triggered workflow runs for the checked commit and no commit statuses. Its run lookup does not expose push-triggered runs or repository Actions settings, so the cause of the earlier missing CI evidence remains unverified.
 - PowerShell (`pwsh`) and a Windows runner are unavailable in this workspace.
-- `pnpm build` emits a warning that `pnpm.onlyBuiltDependencies` in `package.json` is no longer read by pnpm 10; move this configuration to the supported workspace settings in a separately reviewed change.
+- Advisory findings are currently clear, but that is not a guarantee against future vulnerabilities; keep CI audit enabled.
 - Target laptop and Android private-network access are not available for acceptance testing in this session.
 
 ## Windows acceptance requirements
@@ -57,4 +75,4 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 
 ## Checkpoint
 
-At the start of this work, the verified remote branch head was `7a569ca60d3138efb795a2f13a57e4371e3cc294`. The approval and hardening batch is committed to `work/local-first-windows` as `c5c008fe1ff51e3b831b58823cbf6e2dd1329ef3`; this status-file correction follows that code commit.
+Previous verified remote head: `4e6f847864a3bd459857db853c543cf366535b05`. Dependency remediation and local-RPC hardening are implemented in the current uncommitted batch until review, commit and remote verification.
