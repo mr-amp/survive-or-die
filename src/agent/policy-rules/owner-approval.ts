@@ -18,6 +18,8 @@ export function createOwnerApprovalRule(): PolicyRule {
         "fund_child",
         "create_sandbox",
         "register_domain",
+        "spawn_child",
+        "start_child",
       ],
     },
     evaluate() {

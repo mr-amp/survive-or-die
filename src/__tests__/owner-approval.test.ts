@@ -11,6 +11,8 @@ const protectedActions = [
   "fund_child",
   "create_sandbox",
   "register_domain",
+        "spawn_child",
+        "start_child",
 ];
 
 describe("owner approval policy", () => {
