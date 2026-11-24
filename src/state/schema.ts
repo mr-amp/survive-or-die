@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -700,6 +700,59 @@ export const MIGRATION_V12 = `
 
   CREATE INDEX idx_owner_approval_events_request
     ON owner_approval_events(request_id, created_at);
+`;
+
+export const MIGRATION_V13 = `
+  -- Schema version: 13
+  -- Persistent opportunity pipeline. Forecasts and owner-entered actuals are
+  -- separate records; this schema has no payment or publication executor.
+  CREATE TABLE business_opportunities (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    customer_segment TEXT NOT NULL,
+    customer_problem TEXT NOT NULL,
+    value_proposition TEXT NOT NULL,
+    evidence_summary TEXT NOT NULL,
+    competitor_summary TEXT NOT NULL DEFAULT '',
+    evidence_urls TEXT NOT NULL DEFAULT '[]',
+    estimated_cost_cents INTEGER CHECK(estimated_cost_cents IS NULL OR estimated_cost_cents >= 0),
+    estimated_revenue_cents INTEGER CHECK(estimated_revenue_cents IS NULL OR estimated_revenue_cents >= 0),
+    forecast_days INTEGER NOT NULL CHECK(forecast_days BETWEEN 1 AND 3650),
+    confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+    risks TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'discovered'
+      CHECK(status IN ('discovered','researching','shortlisted','proposal','experiment','completed','rejected')),
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_business_opportunities_status ON business_opportunities(status, updated_at DESC);
+  CREATE INDEX idx_business_opportunities_created ON business_opportunities(created_at DESC);
+
+  CREATE TABLE business_opportunity_events (
+    id TEXT PRIMARY KEY,
+    opportunity_id TEXT NOT NULL REFERENCES business_opportunities(id),
+    event_type TEXT NOT NULL CHECK(event_type IN ('created','status_changed','actual_recorded')),
+    actor_kind TEXT NOT NULL CHECK(actor_kind IN ('agent','owner','system')),
+    actor_id TEXT NOT NULL,
+    details TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_business_opportunity_events ON business_opportunity_events(opportunity_id, created_at DESC);
+
+  CREATE TABLE business_opportunity_actuals (
+    id TEXT PRIMARY KEY,
+    opportunity_id TEXT NOT NULL REFERENCES business_opportunities(id),
+    kind TEXT NOT NULL CHECK(kind IN ('income','expense')),
+    amount_cents INTEGER NOT NULL CHECK(amount_cents > 0),
+    currency TEXT NOT NULL DEFAULT 'GBP' CHECK(currency = 'GBP'),
+    description TEXT NOT NULL,
+    external_reference TEXT,
+    entered_by TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_business_actuals_opportunity ON business_opportunity_actuals(opportunity_id, created_at DESC);
 `;
 
 export const MIGRATION_V10 = `

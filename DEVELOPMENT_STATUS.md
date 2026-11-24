@@ -12,6 +12,7 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 - Self-modification path protections cover the live runtime, policy/approval/dashboard/database/resource files, package manifest, tool manager and safety controls. Direct live self-modification actions are also blocked by the owner-approval policy.
 - Solana USDC balance reads use bounded JSON-RPC with address/account validation and timeouts; the large SDK is no longer needed for that one lookup.
 - Dependency remediation removed unused `simple-git` and `gray-matter`, removed `@solana/web3.js` after replacing its one runtime use, updated the development test/build toolchain, and added only scoped compatible transitive overrides.
+- Persistent business opportunity pipeline (schema v13): the agent can save opportunity hypotheses with customer problem, value proposition, evidence/competitor notes, source links, estimated GBP pence, confidence, forecast horizon and risks. The authenticated owner dashboard lists these, advances the review lifecycle, and records owner-reported actual income/expenses separately with idempotency and audit events. No sources are fetched or asserted as verified; no payments, customer contact, publication, account creation or commercial commitments are performed.
 
 ## Verified in this checkpoint
 
@@ -21,6 +22,7 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 - Seventeen focused test files passed: 314 tests covering approval storage, denied-tool integration, dashboard, security, financial policy, Solana RPC validation, local worker cancellation, task graph, heartbeat scheduling, low-compute operation and offline integration flows.
 - `pnpm audit --audit-level=low` and `pnpm audit --prod --audit-level=low` report no known vulnerabilities for the current lockfile.
 - `git diff --check` passed after the final status-file addition.
+- Business pipeline implementation: `pnpm run typecheck`, `pnpm run build`, and the focused business-opportunity, dashboard, policy-engine and approval integration tests passed (13 tests in the latest focused run). Persistence, agent tool registration, transition guards, source URL validation, owner-only actual ledger entries, idempotent retry behavior and accurate totals beyond the bounded history view are covered. The dashboard HTTP routes were not exercised end-to-end.
 
 ## Security audit resolution
 
@@ -50,7 +52,8 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 - Obtain an Actions run and fix any verified CI failures; determine or enable repository workflow permissions through GitHub owner settings if required.
 - Repeat dependency audits as part of CI and review future transitive changes. The prior lockfile had 46 advisories (5 critical, 18 high, 21 moderate, 2 low); the current lockfile audit returns none at low severity or higher.
 - Build isolated self-improvement workspaces, diff/test proposal review, approval-gated activation and rollback. Current protections do not constitute that complete proposal lifecycle.
-- Add full dashboard workflows for persistent goals, business opportunity review, resource history and self-improvement proposals.
+- Extend opportunity items into evidence-backed tasks and business experiments; current source links are recorded only and all forecasts are hypotheses.
+- Add full dashboard workflows for persistent goals, resource history and self-improvement proposals.
 - Extend persistent worker identities, bounded delegation and parent/child progress/result messaging.
 - Continue durable task retry/backoff, dependency and resource-aware scheduling verification against the existing task subsystem.
 - Do not implement an executor for real financial transactions without a separate security review and owner authorization.
@@ -72,7 +75,8 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 5. Verify dashboard authentication on loopback, then test private Android access only over an authenticated private network such as Tailscale. Confirm it is not publicly reachable.
 6. Test the 16GB profile before using parallel workers; after a RAM upgrade, explicitly test the 32GB profile and resource limits.
 7. Test backup, restore, crash restart, safe update and uninstall before calling the installation ready.
+8. In the authenticated dashboard, submit an opportunity through the agent tool; verify stage changes persist after restart, estimates remain marked unverified, and owner-entered actuals are idempotent and do not trigger payments.
 
 ## Checkpoint
 
-Previous verified remote head: `4e6f847864a3bd459857db853c543cf366535b05`. Dependency remediation and local-RPC hardening are committed to `work/local-first-windows` as `d18aa068ca83c5a58059b0fc0ff7366ebbf38b82`; this status-file update follows that implementation commit.
+Previous verified remote head before this batch: `2061c829f2ecd85e87f7b664388f53d38134c3a3`. The business pipeline is implemented locally and not yet committed. Remote status must be checked after pushing the reviewed batch.

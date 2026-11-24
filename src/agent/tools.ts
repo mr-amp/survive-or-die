@@ -3208,6 +3208,49 @@ Model: ${ctx.inference.getDefaultModel()}
         return lines.join("\n");
       },
     },
+    {
+      name: "propose_business_opportunity",
+      description:
+        "Save a business opportunity hypothesis for owner review. Include evidence and risks honestly. Estimates are not validated facts; this tool does not contact customers, publish anything, spend money, create accounts, or make commitments.",
+      category: "economics",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Short opportunity title" },
+          customer_segment: { type: "string", description: "Who may have the problem" },
+          customer_problem: { type: "string", description: "Problem hypothesis" },
+          value_proposition: { type: "string", description: "Proposed product or service value" },
+          evidence_summary: { type: "string", description: "Evidence observed and uncertainty; do not invent research" },
+          competitor_summary: { type: "string", description: "Known alternatives and gaps, or state that research is incomplete" },
+          evidence_urls: { type: "array", items: { type: "string" }, description: "Up to ten source links; links are recorded, not fetched or independently verified" },
+          estimated_cost_cents: { type: "integer", minimum: 0, description: "Estimated cost in pence, or omit if unknown" },
+          estimated_revenue_cents: { type: "integer", minimum: 0, description: "Estimated revenue in pence, or omit if unknown" },
+          forecast_days: { type: "integer", minimum: 1, maximum: 3650, description: "Forecast horizon" },
+          confidence: { type: "number", minimum: 0, maximum: 1, description: "Subjective confidence from 0 to 1" },
+          risks: { type: "string", description: "Risks, assumptions and validation needed" },
+        },
+        required: ["title", "customer_segment", "customer_problem", "value_proposition", "evidence_summary", "forecast_days", "confidence", "risks"],
+      },
+      execute: async (args, ctx) => {
+        const { createBusinessOpportunity } = await import("../economics/opportunities.js");
+        const opportunity = createBusinessOpportunity(ctx.db.raw, {
+          title: args.title as string,
+          customerSegment: args.customer_segment as string,
+          customerProblem: args.customer_problem as string,
+          valueProposition: args.value_proposition as string,
+          evidenceSummary: args.evidence_summary as string,
+          competitorSummary: typeof args.competitor_summary === "string" ? args.competitor_summary : "",
+          evidenceUrls: Array.isArray(args.evidence_urls) ? args.evidence_urls as string[] : [],
+          estimatedCostCents: args.estimated_cost_cents as number | undefined,
+          estimatedRevenueCents: args.estimated_revenue_cents as number | undefined,
+          forecastDays: args.forecast_days as number,
+          confidence: args.confidence as number,
+          risks: args.risks as string,
+        }, ctx.identity.address || "local-agent");
+        return `Saved opportunity ${opportunity.id} for owner review. Estimates and evidence are unverified hypotheses; no external action or financial transaction was performed.`;
+      },
+    },
   ];
 }
 
