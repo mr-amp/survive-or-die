@@ -482,7 +482,14 @@ async function run(): Promise<void> {
         logger.info(`[${new Date().toISOString()}] Automaton is dead. Heartbeat will continue.`);
         // In dead state, we just wait for funding
         // The heartbeat will keep checking and broadcasting distress
-        await sleep(300_000); // Check every 5 minutes
+        for (let waited = 0; waited < 300_000; waited += 1_000) {
+          await sleep(1_000);
+          if (emergencyStopRequested || db.getKV("dashboard_stop_requested") === "true") {
+            shutdown();
+            return;
+          }
+          if (db.getAgentState() !== "dead") break;
+        }
         continue;
       }
 
@@ -523,7 +530,13 @@ async function run(): Promise<void> {
         `[${new Date().toISOString()}] Fatal error in run loop: ${err.message}`,
       );
       // Wait before retrying
-      await sleep(30_000);
+      for (let waited = 0; waited < 30_000; waited += 1_000) {
+        await sleep(1_000);
+        if (emergencyStopRequested || db.getKV("dashboard_stop_requested") === "true") {
+          shutdown();
+          return;
+        }
+      }
     }
   }
 }

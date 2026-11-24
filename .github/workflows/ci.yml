@@ -39,6 +39,7 @@ jobs:
       - name: Run focused security and financial tests
         run: >-
           pnpm exec vitest run
+          src/__tests__/dashboard.test.ts
           src/__tests__/owner-approval.test.ts
           src/__tests__/tools-security.test.ts
           src/__tests__/financial.test.ts

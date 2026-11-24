@@ -340,8 +340,10 @@ export async function runAgentLoop(
       break;
     }
     if (db.getKV("dashboard_pause_requested") === "true") {
-      db.setAgentState("sleeping");
-      onStateChange?.("sleeping");
+      if (db.getAgentState() !== "sleeping") {
+        db.setAgentState("sleeping");
+        onStateChange?.("sleeping");
+      }
       await new Promise((resolve) => setTimeout(resolve, 1_000));
       continue;
     }
