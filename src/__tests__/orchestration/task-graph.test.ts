@@ -478,6 +478,23 @@ describe("orchestration/task-graph", () => {
       expect(task?.result).toMatchObject({ success: false, output: "boom" });
     });
 
+    it("backs off retries and makes due tasks schedulable after restart", () => {
+      const goal = createGoal(db, "Goal", "Desc");
+      const taskId = insertTask(db, {
+        goalId: goal.id, title: "backoff", description: "desc", status: "running", maxRetries: 3,
+      });
+      const firstFailureAt = new Date("2026-01-01T00:00:00.000Z");
+      failTask(db, taskId, "temporary", true, firstFailureAt);
+
+      const first = getTaskById(db, taskId);
+      expect(first?.nextAttemptAt).toBe("2026-01-01T00:00:05.000Z");
+      expect(getReadyTasks(db, "2026-01-01T00:00:04.999Z").some((task) => task.id === taskId)).toBe(false);
+      expect(getReadyTasks(db, "2026-01-01T00:00:05.000Z").some((task) => task.id === taskId)).toBe(true);
+
+      failTask(db, taskId, "still temporary", true, new Date("2026-01-01T00:00:05.000Z"));
+      expect(getTaskById(db, taskId)?.nextAttemptAt).toBe("2026-01-01T00:00:15.000Z");
+    });
+
     it("moves to blocked on retry when dependencies are not satisfied", () => {
       const goal = createGoal(db, "Goal", "Desc");
       const depId = insertTask(db, {

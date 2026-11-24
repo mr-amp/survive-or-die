@@ -14,6 +14,7 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 - Dependency remediation removed unused `simple-git` and `gray-matter`, removed `@solana/web3.js` after replacing its one runtime use, updated the development test/build toolchain, and added only scoped compatible transitive overrides.
 - Persistent business opportunity pipeline (schema v13): the agent can save opportunity hypotheses with customer problem, value proposition, evidence/competitor notes, source links, estimated GBP pence, confidence, forecast horizon and risks. The authenticated owner dashboard lists these, advances the review lifecycle, and records owner-reported actual income/expenses separately with idempotency and audit events. No sources are fetched or asserted as verified; no payments, customer contact, publication, account creation or commercial commitments are performed.
 - Draft-only self-improvement proposal lifecycle (schema v14): agent proposals store complete candidate file text, bounded source diffs, content hash, rationale, expiry and verification state, and create an exact software-change owner approval request. Protected/security files, traversal paths, symlink escapes, generated/private directories, and size excess are rejected. The authenticated dashboard can approve or reject a review and the approval history is linked. Approval remains review-only: no candidate code is executed, copied to the live tree or activated.
+- Persistent task retry backoff (schema v15): retryable task failures now store an ISO next-attempt time, with exponential delay starting at five seconds and capped at 30 minutes. The ready-task query filters work until that time, retry timestamps survive restart, terminal/successful transitions clear the delay, and the dashboard shows scheduled retry time.
 
 ## Verified in this checkpoint
 
@@ -25,6 +26,7 @@ Checkpoint for `work/local-first-windows`. This file records repository evidence
 - `git diff --check` passed after the final status-file addition.
 - Business pipeline implementation: `pnpm run typecheck`, `pnpm run build`, and the focused business-opportunity, dashboard, policy-engine and approval integration tests passed (13 tests in the latest focused run). Persistence, agent tool registration, transition guards, source URL validation, owner-only actual ledger entries, idempotent retry behavior and accurate totals beyond the bounded history view are covered. The dashboard HTTP routes were not exercised end-to-end.
 - Combined business-pipeline and self-improvement proposal checks: typecheck and production build passed, the dashboard inline JavaScript passed `node --check`, and five focused business, proposal, dashboard and approval test files passed (17 tests). Proposal tests verify approval binding, persisted drafts, no live-file writes, protected-path rejection, expiry and safe resubmission after expiry.
+- Retry backoff integration: typecheck and production build passed, the dashboard inline JavaScript passed `node --check`, and four focused orchestration, health-monitor, proposal and business test files passed (92 tests), including deterministic first/second retry timing and persistence through the ready-task database query.
 
 ## Security audit resolution
 
@@ -58,7 +60,7 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 - Extend opportunity items into evidence-backed tasks and business experiments; current source links are recorded only and all forecasts are hypotheses.
 - Add full dashboard workflows for persistent goals, resource history and self-improvement proposals.
 - Extend persistent worker identities, bounded delegation and parent/child progress/result messaging.
-- Continue durable task retry/backoff, dependency and resource-aware scheduling verification against the existing task subsystem.
+- Extend retry classification/backoff consistently to health-monitor reassignment and failed-worker recovery, then verify resource-aware scheduling and restart behavior end-to-end.
 - Do not implement an executor for real financial transactions without a separate security review and owner authorization.
 
 ## Known issues and external blockers
@@ -83,4 +85,4 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 
 ## Checkpoint
 
-Previous verified remote head before the self-improvement batch: `9e9717b747680efb99afff93690d2e2f8d3c3a7e`. The business opportunity pipeline and its checkpoint are on the remote development branch. Self-improvement proposals are currently an uncommitted batch. `main` remains untouched.
+Previous verified remote head before the self-improvement batch: `9e9717b747680efb99afff93690d2e2f8d3c3a7e`. The draft-only self-improvement proposal lifecycle is committed as `7b8b422c9594047510069f82966e4ed920c56d41`, verified on the remote development branch. Task retry backoff is currently uncommitted. `main` remains untouched.

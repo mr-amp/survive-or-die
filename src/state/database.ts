@@ -49,6 +49,7 @@ import {
   MIGRATION_V12,
   MIGRATION_V13,
   MIGRATION_V14,
+  MIGRATION_V15,
 } from "./schema.js";
 import type {
   RiskLevel,
@@ -640,6 +641,10 @@ function applyMigrations(db: DatabaseType): void {
       version: 14,
       apply: () => db.exec(MIGRATION_V14),
     },
+    {
+      version: 15,
+      apply: () => db.exec(MIGRATION_V15),
+    },
   ];
 
   for (const m of migrations) {
@@ -733,6 +738,7 @@ export interface TaskGraphRow {
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
+  nextAttemptAt?: string | null;
 }
 
 export interface EventStreamRow {
@@ -877,6 +883,7 @@ export function insertGoal(
     actualRevenueCents?: number;
     deadline?: string | null;
     completedAt?: string | null;
+    nextAttemptAt?: string | null;
   },
 ): string {
   const id = ulid();
@@ -942,6 +949,7 @@ export function insertTask(
     timeoutMs?: number;
     startedAt?: string | null;
     completedAt?: string | null;
+    nextAttemptAt?: string | null;
   },
 ): string {
   const id = ulid();
@@ -950,8 +958,8 @@ export function insertTask(
     `INSERT INTO task_graph
      (id, parent_id, goal_id, title, description, status, assigned_to, agent_role, priority,
       dependencies, result, estimated_cost_cents, actual_cost_cents, max_retries, retry_count,
-      timeout_ms, created_at, started_at, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      timeout_ms, created_at, started_at, completed_at, next_attempt_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     row.parentId ?? null,
@@ -972,6 +980,7 @@ export function insertTask(
     now,
     row.startedAt ?? null,
     row.completedAt ?? null,
+    row.nextAttemptAt ?? null,
   );
   return id;
 }
@@ -987,28 +996,29 @@ export function updateTaskStatus(db: DatabaseType, id: string, status: TaskGraph
   const now = new Date().toISOString();
   if (status === "running") {
     db.prepare(
-      "UPDATE task_graph SET status = ?, started_at = COALESCE(started_at, ?) WHERE id = ?",
+      "UPDATE task_graph SET status = ?, started_at = COALESCE(started_at, ?), next_attempt_at = NULL WHERE id = ?",
     ).run(status, now, id);
     return;
   }
 
   if (status === "completed" || status === "failed" || status === "cancelled") {
     db.prepare(
-      "UPDATE task_graph SET status = ?, completed_at = ? WHERE id = ?",
+      "UPDATE task_graph SET status = ?, completed_at = ?, next_attempt_at = NULL WHERE id = ?",
     ).run(status, now, id);
     return;
   }
 
   db.prepare(
-    "UPDATE task_graph SET status = ? WHERE id = ?",
+    "UPDATE task_graph SET status = ?, next_attempt_at = NULL WHERE id = ?",
   ).run(status, id);
 }
 
-export function getReadyTasks(db: DatabaseType): TaskGraphRow[] {
+export function getReadyTasks(db: DatabaseType, now = new Date().toISOString()): TaskGraphRow[] {
   const rows = db.prepare(
     `SELECT t.*
      FROM task_graph t
      WHERE t.status = 'pending'
+       AND (t.next_attempt_at IS NULL OR t.next_attempt_at <= ?)
        AND NOT EXISTS (
          SELECT 1
          FROM json_each(COALESCE(NULLIF(t.dependencies, ''), '[]')) dep
@@ -1016,7 +1026,7 @@ export function getReadyTasks(db: DatabaseType): TaskGraphRow[] {
          WHERE d.status IS NULL OR d.status != 'completed'
        )
      ORDER BY t.priority DESC, t.created_at ASC`,
-  ).all() as any[];
+  ).all(now) as any[];
   return rows.map(deserializeTaskGraphRow);
 }
 
@@ -2296,6 +2306,7 @@ function deserializeTaskGraphRow(row: any): TaskGraphRow {
     createdAt: row.created_at,
     startedAt: row.started_at ?? null,
     completedAt: row.completed_at ?? null,
+    nextAttemptAt: row.next_attempt_at ?? null,
   };
 }
 

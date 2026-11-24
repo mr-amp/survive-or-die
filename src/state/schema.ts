@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -780,6 +780,12 @@ export const MIGRATION_V14 = `
   CREATE UNIQUE INDEX idx_self_improvement_pending_hash
     ON self_improvement_proposals(diff_hash) WHERE status = 'pending_review';
   CREATE INDEX idx_self_improvement_status ON self_improvement_proposals(status, created_at DESC);
+`;
+
+export const MIGRATION_V15 = `
+  -- Schema version: 15. Persist bounded exponential retry backoff for task recovery.
+  ALTER TABLE task_graph ADD COLUMN next_attempt_at TEXT;
+  CREATE INDEX idx_task_graph_next_attempt ON task_graph(status, next_attempt_at);
 `;
 
 export const MIGRATION_V10 = `

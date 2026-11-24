@@ -232,8 +232,8 @@ export function decomposeGoal(
   });
 }
 
-export function getReadyTasks(db: Database): TaskNode[] {
-  return getReadyTaskRows(db).map(taskRowToTaskNode);
+export function getReadyTasks(db: Database, now = new Date().toISOString()): TaskNode[] {
+  return getReadyTaskRows(db, now).map(taskRowToTaskNode);
 }
 
 export function assignTask(db: Database, taskId: string, agentAddress: string): void {
@@ -270,7 +270,7 @@ export function completeTask(db: Database, taskId: string, result: TaskResult): 
 
     updateTaskStatus(db, taskId, "completed");
     db.prepare(
-      "UPDATE task_graph SET result = ?, actual_cost_cents = ?, started_at = COALESCE(started_at, ?) WHERE id = ?",
+      "UPDATE task_graph SET result = ?, actual_cost_cents = ?, started_at = COALESCE(started_at, ?), next_attempt_at = NULL WHERE id = ?",
     ).run(JSON.stringify(result), result.costCents, new Date().toISOString(), taskId);
 
     unblockReadyBlockedTasks(db);
@@ -278,7 +278,7 @@ export function completeTask(db: Database, taskId: string, result: TaskResult): 
   });
 }
 
-export function failTask(db: Database, taskId: string, error: string, shouldRetry: boolean): void {
+export function failTask(db: Database, taskId: string, error: string, shouldRetry: boolean, now = new Date()): void {
   withTransaction(db, () => {
     const task = getTaskById(db, taskId);
     if (!task) {
@@ -302,19 +302,21 @@ export function failTask(db: Database, taskId: string, error: string, shouldRetr
       const nextStatus: TaskStatus = areDependenciesSatisfied(db, task.dependencies)
         ? "pending"
         : "blocked";
+      const backoffMs = Math.min(30 * 60_000, 5_000 * 2 ** Math.min(task.retryCount, 9));
+      const nextAttemptAt = new Date(now.getTime() + backoffMs).toISOString();
 
       db.prepare(
         `UPDATE task_graph
-         SET status = ?, retry_count = ?, assigned_to = NULL, started_at = NULL, completed_at = NULL, result = ?
+         SET status = ?, retry_count = ?, assigned_to = NULL, started_at = NULL, completed_at = NULL, result = ?, next_attempt_at = ?
          WHERE id = ?`,
-      ).run(nextStatus, task.retryCount + 1, JSON.stringify(failureResult), taskId);
+      ).run(nextStatus, task.retryCount + 1, JSON.stringify(failureResult), nextAttemptAt, taskId);
 
       return;
     }
 
     updateTaskStatus(db, taskId, "failed");
     db.prepare(
-      "UPDATE task_graph SET result = ?, assigned_to = NULL WHERE id = ?",
+      "UPDATE task_graph SET result = ?, assigned_to = NULL, next_attempt_at = NULL WHERE id = ?",
     ).run(JSON.stringify(failureResult), taskId);
 
     blockDependentsForFailedTask(db, taskId);
