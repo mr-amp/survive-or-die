@@ -13,6 +13,20 @@ export const OPPORTUNITY_STATUSES = [
 export type OpportunityStatus = typeof OPPORTUNITY_STATUSES[number];
 export type OpportunityActualKind = "income" | "expense";
 export type BusinessExperimentStatus = "proposed" | "completed" | "rejected";
+export type BusinessEvidenceType = "official" | "research" | "news" | "competitor" | "other";
+
+export interface BusinessEvidence {
+  id: string;
+  title: string;
+  sourceUrl: string;
+  claim: string;
+  sourceDate: string;
+  sourceType: BusinessEvidenceType;
+  limitations: string;
+  submittedBy: string;
+  verificationStatus: "unverified";
+  createdAt: string;
+}
 
 export interface BusinessExperiment {
   id: string;
@@ -81,6 +95,7 @@ export interface BusinessOpportunity {
     createdAt: string;
   }>;
   validationGoalId: string | null;
+  evidenceItems: BusinessEvidence[];
 }
 
 const STATUS_TRANSITIONS: Record<OpportunityStatus, readonly OpportunityStatus[]> = {
@@ -106,7 +121,7 @@ function cents(value: number | null | undefined, label: string): number | null {
   return value;
 }
 
-function rowToOpportunity(row: any, actualRows: any[], allActuals?: { income: number; expense: number }): BusinessOpportunity {
+function rowToOpportunity(row: any, actualRows: any[], allActuals?: { income: number; expense: number }, evidenceRows: any[] = []): BusinessOpportunity {
   const actuals = actualRows.map((actual) => ({
     id: actual.id,
     kind: actual.kind as OpportunityActualKind,
@@ -144,13 +159,26 @@ function rowToOpportunity(row: any, actualRows: any[], allActuals?: { income: nu
       : Number(row.estimated_revenue_cents) - Number(row.estimated_cost_cents),
     actuals,
     validationGoalId: row.validation_goal_id ?? null,
+    evidenceItems: evidenceRows.map((evidence) => ({
+      id: evidence.id,
+      title: evidence.title,
+      sourceUrl: evidence.source_url,
+      claim: evidence.claim,
+      sourceDate: evidence.source_date,
+      sourceType: evidence.source_type,
+      limitations: evidence.limitations,
+      submittedBy: evidence.submitted_by,
+      verificationStatus: "unverified" as const,
+      createdAt: evidence.created_at,
+    })),
   };
 }
 
 function hydrateOpportunity(db: Database.Database, row: any): BusinessOpportunity {
   const actuals = db.prepare("SELECT id,kind,amount_cents,external_reference,description,entered_by,created_at FROM business_opportunity_actuals WHERE opportunity_id = ? ORDER BY created_at DESC LIMIT 100").all(row.id) as any[];
+  const evidence = db.prepare("SELECT * FROM business_opportunity_evidence WHERE opportunity_id = ? ORDER BY created_at DESC LIMIT 50").all(row.id) as any[];
   const totals = Object.fromEntries((db.prepare("SELECT kind, SUM(amount_cents) AS total FROM business_opportunity_actuals WHERE opportunity_id = ? GROUP BY kind").all(row.id) as Array<{ kind: string; total: number }>).map((entry) => [entry.kind, Number(entry.total)]));
-  return rowToOpportunity(row, actuals, { income: totals.income || 0, expense: totals.expense || 0 });
+  return rowToOpportunity(row, actuals, { income: totals.income || 0, expense: totals.expense || 0 }, evidence);
 }
 
 export function createBusinessOpportunity(db: Database.Database, input: OpportunityInput, createdBy: string, now = new Date()): BusinessOpportunity {
@@ -213,6 +241,48 @@ export function listBusinessOpportunities(db: Database.Database, limit = 50): Bu
   const bounded = Math.max(1, Math.min(100, Math.floor(limit)));
   const rows = db.prepare("SELECT * FROM business_opportunities ORDER BY CASE status WHEN 'completed' THEN 1 WHEN 'rejected' THEN 2 ELSE 0 END, updated_at DESC LIMIT ?").all(bounded) as any[];
   return rows.map((row) => hydrateOpportunity(db, row));
+}
+
+/** Record a sourced research claim without asserting its accuracy or independently checking the link. */
+export function recordBusinessEvidence(
+  db: Database.Database,
+  input: { opportunityId: string; title: string; sourceUrl: string; claim: string; sourceDate: string; sourceType: BusinessEvidenceType; limitations: string },
+  submittedBy: string,
+  now = new Date(),
+): BusinessEvidence | null {
+  const actor = text(submittedBy, "Submitter", 160);
+  const title = text(input.title, "Source title", 240);
+  const claim = text(input.claim, "Observed claim", 1800);
+  const limitations = text(input.limitations, "Limitations", 1000, false);
+  if (!/^(official|research|news|competitor|other)$/.test(input.sourceType)) throw new Error("Choose a supported source type.");
+  const sourceDate = text(input.sourceDate, "Source date", 10);
+  const parsedDate = new Date(`${sourceDate}T00:00:00.000Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(sourceDate) || Number.isNaN(parsedDate.getTime()) || parsedDate.toISOString().slice(0, 10) !== sourceDate) {
+    throw new Error("Source date must be a valid YYYY-MM-DD date.");
+  }
+  const rawUrl = text(input.sourceUrl, "Source URL", 1000);
+  let parsed: URL;
+  try { parsed = new URL(rawUrl); } catch { throw new Error("Source URL must be a valid HTTP or HTTPS link."); }
+  if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || parsed.username || parsed.password) throw new Error("Source URL must be HTTP or HTTPS without embedded credentials.");
+  const sourceUrl = parsed.toString();
+  const timestamp = now.toISOString();
+  const transaction = db.transaction(() => {
+    if (!db.prepare("SELECT 1 FROM business_opportunities WHERE id = ?").get(input.opportunityId)) return null;
+    db.prepare(`INSERT OR IGNORE INTO business_opportunity_evidence
+      (id, opportunity_id, title, source_url, claim, source_date, source_type, limitations, submitted_by, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(ulid(), input.opportunityId, title, sourceUrl, claim, sourceDate, input.sourceType, limitations, actor, timestamp);
+    return db.prepare(`SELECT id,title,source_url,claim,source_date,source_type,limitations,submitted_by,created_at
+      FROM business_opportunity_evidence WHERE opportunity_id=? AND source_url=? AND title=? AND claim=?
+        AND source_date=? AND source_type=? AND limitations=?`)
+      .get(input.opportunityId, sourceUrl, title, claim, sourceDate, input.sourceType, limitations) as any;
+  });
+  const row = transaction();
+  return row ? {
+    id: row.id, title: row.title, sourceUrl: row.source_url, claim: row.claim, sourceDate: row.source_date,
+    sourceType: row.source_type, limitations: row.limitations, submittedBy: row.submitted_by,
+    verificationStatus: "unverified", createdAt: row.created_at,
+  } : null;
 }
 
 /** Actuals are the owner-entered opportunity ledger. Forecast totals remain separate and unverified. */
@@ -327,8 +397,9 @@ export function transitionBusinessOpportunity(db: Database.Database, id: string,
   const row = transaction();
   if (!row) return null;
   const actuals = db.prepare("SELECT id,kind,amount_cents,external_reference,description,entered_by,created_at FROM business_opportunity_actuals WHERE opportunity_id = ? ORDER BY created_at DESC LIMIT 100").all(id) as any[];
+  const evidence = db.prepare("SELECT * FROM business_opportunity_evidence WHERE opportunity_id = ? ORDER BY created_at DESC LIMIT 50").all(id) as any[];
   const totals = Object.fromEntries((db.prepare("SELECT kind, SUM(amount_cents) AS total FROM business_opportunity_actuals WHERE opportunity_id = ? GROUP BY kind").all(id) as Array<{ kind: string; total: number }>).map((entry) => [entry.kind, Number(entry.total)]));
-  return rowToOpportunity(row, actuals, { income: totals.income || 0, expense: totals.expense || 0 });
+  return rowToOpportunity(row, actuals, { income: totals.income || 0, expense: totals.expense || 0 }, evidence);
 }
 
 /** Record an owner-reported ledger item. Idempotency makes dashboard retries safe. */

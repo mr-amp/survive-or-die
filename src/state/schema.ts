@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 20;
+export const SCHEMA_VERSION = 21;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -897,6 +897,25 @@ export const MIGRATION_V20 = `
     created_at TEXT NOT NULL
   );
   CREATE INDEX idx_local_worker_events_worker ON local_worker_events(worker_id, created_at DESC);
+`;
+
+export const MIGRATION_V21 = `
+  -- Schema version: 21. Structured business research submitted with explicit provenance.
+  CREATE TABLE business_opportunity_evidence (
+    id TEXT PRIMARY KEY,
+    opportunity_id TEXT NOT NULL REFERENCES business_opportunities(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    claim TEXT NOT NULL,
+    source_date TEXT NOT NULL,
+    source_type TEXT NOT NULL CHECK(source_type IN ('official','research','news','competitor','other')),
+    limitations TEXT NOT NULL,
+    submitted_by TEXT NOT NULL,
+    verification_status TEXT NOT NULL DEFAULT 'unverified' CHECK(verification_status = 'unverified'),
+    created_at TEXT NOT NULL,
+    UNIQUE(opportunity_id, source_url, title, claim, source_date, source_type, limitations)
+  );
+  CREATE INDEX idx_business_evidence_opportunity ON business_opportunity_evidence(opportunity_id, created_at DESC);
 `;
 
 export const MIGRATION_V10 = `

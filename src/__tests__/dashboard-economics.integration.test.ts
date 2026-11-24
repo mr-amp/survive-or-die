@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createDatabase } from "../state/database.js";
-import { createBusinessOpportunity, proposeBusinessExperiment, reviewBusinessExperiment, transitionBusinessOpportunity } from "../economics/opportunities.js";
+import { createBusinessOpportunity, proposeBusinessExperiment, recordBusinessEvidence, reviewBusinessExperiment, transitionBusinessOpportunity } from "../economics/opportunities.js";
 import { createTestConfig } from "./mocks.js";
 import { createSelfImprovementProposal } from "../self-mod/proposals.js";
 
@@ -30,6 +30,11 @@ describe("authenticated dashboard business workflow", () => {
         valueProposition: "Better tracking", evidenceSummary: "Hypothesis", forecastDays: 30,
         confidence: 0.1, risks: "Unknown",
       }, "agent");
+      recordBusinessEvidence(db.raw, {
+        opportunityId: opportunity.id, title: "Public source", sourceUrl: "https://example.test/source",
+        claim: "A dated source claim", sourceDate: "2026-11-10", sourceType: "official",
+        limitations: "Not independently checked",
+      }, "local-agent");
       transitionBusinessOpportunity(db.raw, opportunity.id, "shortlisted");
       const experiment = proposeBusinessExperiment(db.raw, {
         opportunityId: opportunity.id, title: "Local prototype test", hypothesis: "H", method: "Local-only mock", successCriteria: "Pass/fail",
@@ -70,6 +75,7 @@ describe("authenticated dashboard business workflow", () => {
       expect(await pipeline.json()).toMatchObject({
         automaticFinancialExecutionEnabled: false,
         summary: { actualIncomeCents: 1250, actualExpenseCents: 0, actualProfitCents: 1250 },
+        items: [{ evidenceItems: [{ title: "Public source", verificationStatus: "unverified" }] }],
       });
 
       const selfChange = createSelfImprovementProposal(db.raw, {

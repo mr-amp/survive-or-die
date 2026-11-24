@@ -15,6 +15,7 @@ import {
   recordBusinessActual,
   transitionBusinessOpportunity,
   reviewBusinessExperiment,
+  recordBusinessEvidence,
 } from "../economics/opportunities.js";
 
 describe("persistent business opportunity pipeline", () => {
@@ -134,7 +135,41 @@ describe("persistent business opportunity pipeline", () => {
       confidence: 0.1, risks: "Demand unknown",
     }, { db, identity: { address: "local-agent" } } as unknown as ToolContext);
     expect(result).toContain("unverified hypotheses");
-    expect(listBusinessOpportunities(db.raw)).toHaveLength(1);
+    const opportunities = listBusinessOpportunities(db.raw);
+    expect(opportunities).toHaveLength(1);
+    const evidenceTool = createBuiltinTools("local-sandbox").find((candidate) => candidate.name === "record_business_evidence");
+    const recorded = await evidenceTool!.execute({
+      opportunity_id: opportunities[0].id, title: "Official source", source_url: "https://example.test/official",
+      claim: "A specific public statement", source_date: "2026-11-01", source_type: "official",
+      limitations: "Context not independently reviewed",
+    }, { db, identity: { address: "local-agent" } } as unknown as ToolContext);
+    expect(recorded).toContain("Saved evidence record");
+    expect(listBusinessOpportunities(db.raw)[0].evidenceItems[0].verificationStatus).toBe("unverified");
+  });
+
+  it("persists dated evidence claims as unverified, validates source URLs, and deduplicates retries", () => {
+    const db = makeDb();
+    const opportunity = createBusinessOpportunity(db.raw, {
+      title: "Evidence ledger", customerSegment: "Local services", customerProblem: "Hard to compare tools",
+      valueProposition: "A simple comparison", evidenceSummary: "Research still required", forecastDays: 30,
+      confidence: 0.1, risks: "Source validity unknown",
+    }, "local-agent");
+    const input = {
+      opportunityId: opportunity.id,
+      title: "Public market report",
+      sourceUrl: "https://example.test/report",
+      claim: "The cited report describes the segment size.",
+      sourceDate: "2026-11-01",
+      sourceType: "research" as const,
+      limitations: "Report methods and current relevance have not been checked.",
+    };
+    const first = recordBusinessEvidence(db.raw, input, "local-worker");
+    const retry = recordBusinessEvidence(db.raw, input, "local-worker");
+    expect(retry?.id).toBe(first?.id);
+    expect(first).toMatchObject({ verificationStatus: "unverified", submittedBy: "local-worker" });
+    expect(listBusinessOpportunities(db.raw)[0].evidenceItems).toEqual([first]);
+    expect(() => recordBusinessEvidence(db.raw, { ...input, sourceUrl: "file:///etc/passwd" }, "local-worker")).toThrow("HTTP or HTTPS");
+    expect(() => recordBusinessEvidence(db.raw, { ...input, sourceDate: "2026-99-42" }, "local-worker")).toThrow("valid YYYY-MM-DD");
   });
 
   it("keeps the actual balance complete while limiting the displayed ledger history", () => {

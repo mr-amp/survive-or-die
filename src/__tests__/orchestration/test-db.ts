@@ -14,6 +14,7 @@ import {
   MIGRATION_V18,
   MIGRATION_V19,
   MIGRATION_V20,
+  MIGRATION_V21,
 } from "../../state/schema.js";
 
 export type TestDatabase = BetterSqlite3.Database;
@@ -34,5 +35,6 @@ export function createInMemoryDb(): TestDatabase {
   db.exec(MIGRATION_V18);
   db.exec(MIGRATION_V19);
   db.exec(MIGRATION_V20);
+  db.exec(MIGRATION_V21);
   return db;
 }
