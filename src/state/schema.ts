@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -656,6 +656,50 @@ export const MIGRATION_V11 = `
   -- Schema version: 11
   -- Add chain_type column to children table for multi-chain support
   ALTER TABLE children ADD COLUMN chain_type TEXT DEFAULT 'evm';
+`;
+
+export const MIGRATION_V12 = `
+  -- Schema version: 12
+  -- Owner review records are immutable action-bound approvals. Approved records
+  -- are audit state only: no financial/cloud executor consumes them.
+  CREATE TABLE owner_approval_requests (
+    id TEXT PRIMARY KEY,
+    requester_id TEXT NOT NULL,
+    requester_kind TEXT NOT NULL CHECK(requester_kind IN ('agent','child')),
+    scope TEXT NOT NULL CHECK(scope IN ('financial','paid_cloud','publication','commercial','software_change','other')),
+    action_name TEXT NOT NULL,
+    action_parameters TEXT NOT NULL,
+    action_hash TEXT NOT NULL,
+    description TEXT NOT NULL,
+    estimated_cost_cents INTEGER CHECK(estimated_cost_cents IS NULL OR estimated_cost_cents >= 0),
+    risk_level TEXT NOT NULL CHECK(risk_level IN ('safe','caution','dangerous','forbidden')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','approved','rejected','expired','cancelled','revoked')),
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    reviewed_at TEXT,
+    reviewed_by TEXT,
+    review_note TEXT
+  );
+
+  CREATE UNIQUE INDEX idx_owner_approval_pending_hash
+    ON owner_approval_requests(action_hash) WHERE status = 'pending';
+  CREATE INDEX idx_owner_approval_status_expiry
+    ON owner_approval_requests(status, expires_at);
+  CREATE INDEX idx_owner_approval_created
+    ON owner_approval_requests(created_at);
+
+  CREATE TABLE owner_approval_events (
+    id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL REFERENCES owner_approval_requests(id),
+    event_type TEXT NOT NULL CHECK(event_type IN ('requested','approved','rejected','expired','cancelled','revoked')),
+    actor_kind TEXT NOT NULL CHECK(actor_kind IN ('agent','child','owner','system')),
+    actor_id TEXT NOT NULL,
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+
+  CREATE INDEX idx_owner_approval_events_request
+    ON owner_approval_events(request_id, created_at);
 `;
 
 export const MIGRATION_V10 = `

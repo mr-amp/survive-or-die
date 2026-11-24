@@ -11,12 +11,17 @@ const protectedActions = [
   "fund_child",
   "create_sandbox",
   "register_domain",
-        "spawn_child",
-        "start_child",
+  "spawn_child",
+  "start_child",
+  "edit_own_file",
+  "revert_last_edit",
+  "reset_to_upstream",
+  "install_npm_package",
+  "pull_upstream",
 ];
 
 describe("owner approval policy", () => {
-  it("denies every financial or paid cloud tool until approval is connected", () => {
+  it("denies every protected financial, cloud, and live self-modification tool", () => {
     const rule = createOwnerApprovalRule();
 
     for (const name of protectedActions) {

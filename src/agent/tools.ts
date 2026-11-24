@@ -3328,13 +3328,47 @@ export async function executeTool(
     policyEngine.logDecision(decision);
 
     if (decision.action !== "allow") {
+      let approvalNote = "";
+      if (decision.reasonCode === "OWNER_APPROVAL_REQUIRED") {
+        try {
+          const { requestOwnerApproval } = await import("../approvals/store.js");
+          const paidCloudTools = new Set(["create_sandbox", "spawn_child", "start_child"]);
+          const softwareChangeTools = new Set(["edit_own_file", "revert_last_edit", "reset_to_upstream", "install_npm_package", "pull_upstream"]);
+          const scope = softwareChangeTools.has(toolName)
+            ? "software_change"
+            : paidCloudTools.has(toolName)
+            ? "paid_cloud"
+            : toolName === "register_domain"
+              ? "commercial"
+              : "financial";
+          const amount = args.amount_cents;
+          const amountUsd = args.amount_usd;
+          const request = requestOwnerApproval(context.db.raw, {
+            requesterId: context.identity.address,
+            requesterKind: context.identity.address.startsWith("local://") ? "child" : "agent",
+            scope,
+            actionName: toolName,
+            actionParameters: args,
+            description: "The agent requested this protected action. Policy denied execution; owner review is required.",
+            estimatedCostCents: typeof amount === "number" && Number.isSafeInteger(amount) && amount >= 0
+              ? amount
+              : typeof amountUsd === "number" && Number.isFinite(amountUsd) && amountUsd >= 0
+                ? Math.round(amountUsd * 100)
+                : null,
+            riskLevel: tool.riskLevel,
+          });
+          approvalNote = " Approval request " + request.id + " was recorded; no action was executed.";
+        } catch (error) {
+          logger.error("Failed to persist owner approval request; protected action remains denied.", error instanceof Error ? error : undefined);
+        }
+      }
       return {
         id: ulid(),
         name: toolName,
         arguments: args,
         result: "",
         durationMs: Date.now() - startTime,
-        error: `Policy denied: ${decision.reasonCode} — ${decision.humanMessage}`,
+        error: `Policy denied: ${decision.reasonCode} — ${decision.humanMessage}${approvalNote}`,
       };
     }
   }

@@ -89,6 +89,16 @@ describe("isProtectedFile", () => {
     expect(isProtectedFile("/some/path/agent/policy-engine.js")).toBe(true);
     expect(isProtectedFile("/some/path/agent/policy-rules/index.ts")).toBe(true);
     expect(isProtectedFile("/some/path/agent/policy-rules/index.js")).toBe(true);
+    expect(isProtectedFile("/some/path/agent/policy-rules/owner-approval.ts")).toBe(true);
+    expect(isProtectedFile("/some/path/approvals/store.ts")).toBe(true);
+    expect(isProtectedFile("/some/path/dashboard/server.ts")).toBe(true);
+    expect(isProtectedFile("/some/path/state/database.ts")).toBe(true);
+    expect(isProtectedFile("/some/path/state/schema.ts")).toBe(true);
+    expect(isProtectedFile("/some/path/agent/loop.ts")).toBe(true);
+    expect(isProtectedFile("/some/path/platform/resources.ts")).toBe(true);
+    expect(isProtectedFile("/some/path/src/index.ts")).toBe(true);
+    expect(isProtectedFile("/some/path/config.ts")).toBe(true);
+    expect(isProtectedFile("/some/path/agent/policy-rules/financial.ts")).toBe(true);
   });
 
   it("does NOT false-positive on substring matches", () => {
@@ -104,7 +114,8 @@ describe("isProtectedFile", () => {
 
   it("allows normal unprotected files", () => {
     expect(isProtectedFile("/some/path/readme.md")).toBe(false);
-    expect(isProtectedFile("/some/path/src/index.ts")).toBe(false);
+    expect(isProtectedFile("/some/path/src/worker.ts")).toBe(false);
+    expect(isProtectedFile("/some/path/packages/widget/index.ts")).toBe(false);
     expect(isProtectedFile("/some/path/data.csv")).toBe(false);
   });
 

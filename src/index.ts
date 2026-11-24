@@ -229,7 +229,7 @@ async function run(): Promise<void> {
     }
     logger.info("Local-only mode enabled. Conway and paid inference providers are disabled.");
   }
-  const apiKey = localOnly ? "" : config.conwayApiKey || loadApiKeyFromConfig();
+  const apiKey = localOnly ? "" : config.conwayApiKey || loadApiKeyFromConfig() || "";
   if (!localOnly && !apiKey) {
     logger.error("No Conway API key found. Run automaton --setup to configure local-only mode or --provision for optional Conway mode.");
     process.exit(1);

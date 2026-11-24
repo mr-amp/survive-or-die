@@ -116,15 +116,15 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   }
 
   const ollamaInput = localOnly
-    ? await promptWithDefault("Ollama base URL", "http://localhost:11434")
+    ? await promptOptional("Ollama base URL [http://localhost:11434]")
     : await promptOptional("Ollama base URL (optional)");
-  const ollamaBaseUrl = ollamaInput || undefined;
+  const ollamaBaseUrl = ollamaInput || (localOnly ? "http://localhost:11434" : undefined);
   const profileInput = localOnly
     ? await promptOptional("Memory profile (16gb or 32gb) [16gb]")
     : "";
   const localProfile: "16gb" | "32gb" = profileInput.trim().toLowerCase() === "32gb" ? "32gb" : "16gb";
   const modelInput = localOnly
-    ? await promptWithDefault("Ollama model", "llama3.1:8b")
+    ? await promptOptional("Ollama model [llama3.1:8b]")
     : "";
   const inferenceModel = localOnly ? modelInput || "llama3.1:8b" : "gpt-5.2";
   if (ollamaBaseUrl) {
