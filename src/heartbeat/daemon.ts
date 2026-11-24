@@ -40,6 +40,7 @@ export interface HeartbeatDaemonOptions {
   conway: ConwayClient;
   social?: SocialClientInterface;
   onWakeRequest?: (reason: string) => void;
+  localOnly?: boolean;
 }
 
 export interface HeartbeatDaemon {
@@ -59,6 +60,7 @@ export function createHeartbeatDaemon(
   options: HeartbeatDaemonOptions,
 ): HeartbeatDaemon {
   const { identity, config, heartbeatConfig, db, rawDb, conway, social, onWakeRequest } = options;
+  const localOnly = options.localOnly ?? config.localOnly === true;
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   let running = false;
 
@@ -72,8 +74,9 @@ export function createHeartbeatDaemon(
 
   // Build task map from BUILTIN_TASKS
   const taskMap = new Map<string, HeartbeatTaskFn>();
+  const localTasks = new Set(["heartbeat_ping", "report_metrics", "soul_reflection"]);
   for (const [name, fn] of Object.entries(BUILTIN_TASKS)) {
-    taskMap.set(name, fn);
+    if (!localOnly || localTasks.has(name)) taskMap.set(name, fn);
   }
 
   // Seed heartbeat_schedule from config entries if not already present
@@ -104,6 +107,7 @@ export function createHeartbeatDaemon(
     taskMap,
     legacyContext,
     onWakeRequest,
+    localOnly,
   );
 
   // Tick interval from config (not log level)
@@ -155,8 +159,11 @@ export function createHeartbeatDaemon(
   const isRunning = (): boolean => running;
 
   const forceRun = async (taskName: string): Promise<void> => {
+    if (!taskMap.has(taskName)) {
+      throw new Error(`Heartbeat task "${taskName}" is unavailable in ${localOnly ? "local-only" : "this"} mode.`);
+    }
     const context = await import("./tick-context.js").then((m) =>
-      m.buildTickContext(rawDb, conway, heartbeatConfig, identity.address, identity.chainType),
+      m.buildTickContext(rawDb, conway, heartbeatConfig, identity.address, identity.chainType, localOnly),
     );
     await scheduler.executeTask(taskName, context);
   };

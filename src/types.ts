@@ -73,6 +73,10 @@ export interface AutomatonConfig {
   modelStrategy?: ModelStrategyConfig;
   /** Custom RPC endpoint for Base chain interactions (overrides default public RPC) */
   rpcUrl?: string;
+  /** When true, all inference and runtime work stays on local services. */
+  localOnly?: boolean;
+  /** Local memory/concurrency preset; defaults to the conservative 16GB profile. */
+  localProfile?: "16gb" | "32gb";
   /** Chain type for this automaton. Defaults to "evm" if absent. */
   chainType?: ChainType;
 }

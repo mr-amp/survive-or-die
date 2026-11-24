@@ -70,6 +70,9 @@ export function loadConfig(): AutomatonConfig | null {
           ? raw.sandboxId.trim()
           : DEFAULT_CONFIG.sandboxId,
       conwayApiKey: apiKey,
+      inferenceModel: typeof raw.inferenceModel === "string" && raw.inferenceModel.trim()
+        ? raw.inferenceModel.trim()
+        : raw.localOnly === true ? "llama3.1:8b" : DEFAULT_CONFIG.inferenceModel,
       treasuryPolicy,
       modelStrategy,
       soulConfig,
@@ -130,6 +133,9 @@ export function createConfig(params: {
   parentAddress?: string;
   treasuryPolicy?: TreasuryPolicy;
   chainType?: ChainType;
+  localOnly?: boolean;
+  localProfile?: "16gb" | "32gb";
+  inferenceModel?: string;
 }): AutomatonConfig {
   const normalizedSandboxId = (params.sandboxId || "").trim();
   return {
@@ -145,8 +151,8 @@ export function createConfig(params: {
     openaiApiKey: params.openaiApiKey,
     anthropicApiKey: params.anthropicApiKey,
     ollamaBaseUrl: params.ollamaBaseUrl,
-    inferenceModel: DEFAULT_CONFIG.inferenceModel || "gpt-5.2",
-    maxTokensPerTurn: DEFAULT_CONFIG.maxTokensPerTurn || 4096,
+    inferenceModel: params.inferenceModel || (params.localOnly ? "llama3.1:8b" : DEFAULT_CONFIG.inferenceModel || "gpt-5.2"),
+    maxTokensPerTurn: params.localOnly ? (params.localProfile === "32gb" ? 4096 : 2048) : DEFAULT_CONFIG.maxTokensPerTurn || 4096,
     heartbeatConfigPath:
       DEFAULT_CONFIG.heartbeatConfigPath || "~/.automaton/heartbeat.yml",
     dbPath: DEFAULT_CONFIG.dbPath || "~/.automaton/state.db",
@@ -154,9 +160,11 @@ export function createConfig(params: {
     walletAddress: params.walletAddress,
     version: DEFAULT_CONFIG.version || "0.2.1",
     skillsDir: DEFAULT_CONFIG.skillsDir || "~/.automaton/skills",
-    maxChildren: DEFAULT_CONFIG.maxChildren || 3,
+    maxChildren: params.localOnly ? (params.localProfile === "32gb" ? 2 : 1) : DEFAULT_CONFIG.maxChildren || 3,
     parentAddress: params.parentAddress,
     treasuryPolicy: params.treasuryPolicy ?? DEFAULT_TREASURY_POLICY,
     chainType: params.chainType || "evm",
+    localOnly: params.localOnly ?? false,
+    localProfile: params.localProfile || "16gb",
   };
 }

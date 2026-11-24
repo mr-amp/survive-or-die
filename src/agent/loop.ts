@@ -98,8 +98,18 @@ export async function runAgentLoop(
     options;
 
   const builtinTools = createBuiltinTools(identity.sandboxId);
-  const installedTools = loadInstalledTools(db);
-  const tools = [...builtinTools, ...installedTools];
+  const installedTools = config.localOnly ? [] : loadInstalledTools(db);
+  const localOnlyToolNames = new Set([
+    "sleep", "system_synopsis", "heartbeat_ping", "distress_signal", "enter_low_compute",
+    "list_skills", "create_skill", "view_soul",
+    "reflect_on_soul", "update_soul", "remember_fact", "recall_facts", "set_goal",
+    "complete_goal", "save_procedure", "recall_procedure", "note_about_agent", "review_memory",
+    "forget", "create_goal", "list_goals", "cancel_goal", "get_plan", "complete_task",
+    "orchestrator_status", "git_status", "git_diff", "git_log", "git_branch",
+  ]);
+  const tools = config.localOnly
+    ? builtinTools.filter((tool) => localOnlyToolNames.has(tool.name))
+    : [...builtinTools, ...installedTools];
   const toolContext: ToolContext = {
     identity,
     config,
@@ -113,6 +123,13 @@ export async function runAgentLoop(
   const modelStrategyConfig: ModelStrategyConfig = {
     ...DEFAULT_MODEL_STRATEGY_CONFIG,
     ...(config.modelStrategy ?? {}),
+    ...(config.localOnly ? {
+      inferenceModel: config.inferenceModel,
+      lowComputeModel: config.inferenceModel,
+      criticalModel: config.inferenceModel,
+      maxTokensPerTurn: config.maxTokensPerTurn,
+      enableModelFallback: false,
+    } : {}),
   };
   const modelRegistry = new ModelRegistry(db.raw);
   modelRegistry.initialize();
@@ -123,7 +140,12 @@ export async function runAgentLoop(
     await discoverOllamaModels(ollamaBaseUrl, db.raw);
   }
   const budgetTracker = new InferenceBudgetTracker(db.raw, modelStrategyConfig);
-  const inferenceRouter = new InferenceRouter(db.raw, modelRegistry, budgetTracker);
+  const inferenceRouter = new InferenceRouter(
+    db.raw,
+    modelRegistry,
+    budgetTracker,
+    config.localOnly ? ["ollama"] : undefined,
+  );
 
   // Optional orchestration bootstrap (requires V9 goals/task tables)
   let planModeController: PlanModeController | undefined;
@@ -163,6 +185,9 @@ export async function runAgentLoop(
         "inference-providers.json",
       );
       const registry = ProviderRegistry.fromConfig(providersPath);
+      if (config.localOnly) {
+        registry.configureLocalOnly(config.inferenceModel, config.localProfile || "16gb", ollamaBaseUrl);
+      }
 
       // If OPENAI_BASE_URL was set (Conway fallback), update the default
       // provider's baseUrl so the OpenAI client points to Conway Compute.
@@ -276,7 +301,7 @@ export async function runAgentLoop(
   onStateChange?.("waking");
 
   // Get financial state
-  let financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm");
+  let financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm", config.localOnly === true);
 
   // Check if this is the first run
   const isFirstRun = db.getTurnCount() === 0;
@@ -344,48 +369,20 @@ export async function runAgentLoop(
       }
 
       // Refresh financial state periodically
-      financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm");
+      financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm", config.localOnly === true);
 
       // Check survival tier
       // api_unreachable: creditsCents === -1 means API failed with no cache.
       // Do NOT kill the agent; continue in low-compute mode and retry next tick.
-      if (financial.creditsCents === -1) {
+      if (config.localOnly) {
+        log(config, "[LOCAL_ONLY] Conway credit and wallet balances are not used for local inference.");
+      } else if (financial.creditsCents === -1) {
         log(config, "[API_UNREACHABLE] Balance API unreachable, continuing in low-compute mode.");
         inference.setLowComputeMode(true);
       } else {
         const tier = getSurvivalTier(financial.creditsCents);
 
-        // Inline auto-topup: if credits are critically low and USDC is
-        // available, buy credits NOW — before attempting inference.
-        // This prevents the agent from dying mid-loop while waiting for
-        // the heartbeat to fire. Uses a 60s cooldown to avoid hammering.
-        if ((tier === "critical" || tier === "low_compute") && financial.usdcBalance >= 5) {
-          const INLINE_TOPUP_COOLDOWN_MS = 60_000;
-          const lastInlineTopup = db.getKV("last_inline_topup_attempt");
-          const cooldownExpired = !lastInlineTopup ||
-            Date.now() - new Date(lastInlineTopup).getTime() >= INLINE_TOPUP_COOLDOWN_MS;
-
-          if (cooldownExpired) {
-            db.setKV("last_inline_topup_attempt", new Date().toISOString());
-            try {
-              const { bootstrapTopup } = await import("../conway/topup.js");
-              const topupResult = await bootstrapTopup({
-                apiUrl: config.conwayApiUrl,
-                account: identity.account,
-                creditsCents: financial.creditsCents,
-                chainType: config.chainType || identity.chainType || "evm",
-              });
-              if (topupResult?.success) {
-                log(config, `[AUTO-TOPUP] Bought $${topupResult.amountUsd} credits from USDC mid-loop`);
-                // Re-fetch financial state after topup so the rest of
-                // the turn sees the updated balance.
-                financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm");
-              }
-            } catch (err: any) {
-              logger.warn(`Inline auto-topup failed: ${err.message}`);
-            }
-          }
-        }
+        // Purchases are never initiated automatically. Financial actions require owner approval.
 
         // Re-evaluate tier after potential topup
         const effectiveTier = getSurvivalTier(financial.creditsCents);
@@ -866,7 +863,11 @@ async function getFinancialState(
   address: string,
   db?: AutomatonDatabase,
   chainType?: string,
+  localOnly = false,
 ): Promise<FinancialState> {
+  if (localOnly) {
+    return { creditsCents: 0, usdcBalance: 0, lastChecked: new Date().toISOString() };
+  }
   let creditsCents = _lastKnownCredits;
   let usdcBalance = _lastKnownUsdc;
 

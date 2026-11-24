@@ -262,6 +262,44 @@ export class ProviderRegistry {
     this.emergencyStopCredits = emergencyStopCredits;
   }
 
+  /**
+   * Restrict this registry to one local Ollama model and remove every remote fallback.
+   */
+  configureLocalOnly(
+    modelId: string,
+    profile: "16gb" | "32gb" = "16gb",
+    ollamaBaseUrl = "http://localhost:11434",
+  ): void {
+    for (const provider of this.providers) provider.enabled = provider.id === "local";
+    let local = this.providers.find((provider) => provider.id === "local");
+    if (!local) {
+      const builtInLocal = DEFAULT_PROVIDERS.find((provider) => provider.id === "local");
+      if (!builtInLocal) {
+        throw new Error("Local-only child inference requires the built-in Ollama provider.");
+      }
+      local = deepCloneProvider(builtInLocal);
+      this.providers.push(local);
+    }
+    const maxOutputTokens = profile === "32gb" ? 4096 : 2048;
+    const contextWindow = profile === "32gb" ? 16384 : 8192;
+    local.baseUrl = `${ollamaBaseUrl.replace(/\/$/, "")}/v1`;
+    local.enabled = true;
+    local.models = (["reasoning", "fast", "cheap"] as const).map((tier) => ({
+      id: modelId,
+      tier,
+      contextWindow,
+      maxOutputTokens,
+      costPerInputToken: 0,
+      costPerOutputToken: 0,
+      supportsTools: true,
+      supportsVision: false,
+      supportsStreaming: false,
+    }));
+    for (const tier of ["reasoning", "fast", "cheap"] as const) {
+      this.tierDefaults[tier] = { preferredProvider: "local", fallbackOrder: [] };
+    }
+  }
+
   overrideBaseUrl(providerId: string, baseUrl: string): void {
     const provider = this.providers.find((p) => p.id === providerId);
     if (provider) {

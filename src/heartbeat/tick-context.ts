@@ -43,9 +43,23 @@ export async function buildTickContext(
   config: HeartbeatConfig,
   walletAddress?: string,
   chainType?: string,
+  localOnly = false,
 ): Promise<TickContext> {
   const tickId = generateTickId();
   const startedAt = new Date();
+
+  if (localOnly) {
+    return {
+      tickId,
+      startedAt,
+      creditBalance: 0,
+      usdcBalance: 0,
+      survivalTier: getSurvivalTier(0),
+      lowComputeMultiplier: config.lowComputeMultiplier ?? 4,
+      config,
+      db,
+    };
+  }
 
   // Fetch balances ONCE
   let creditBalance = 0;

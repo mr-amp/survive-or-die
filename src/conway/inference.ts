@@ -29,6 +29,8 @@ interface InferenceClientOptions {
   ollamaBaseUrl?: string;
   /** Optional registry lookup — if provided, used before name heuristics */
   getModelProvider?: (modelId: string) => string | undefined;
+  /** Disallow every remote inference backend, even if a router selects one. */
+  localOnly?: boolean;
 }
 
 type InferenceBackend = "conway" | "openai" | "anthropic" | "ollama";
@@ -48,7 +50,7 @@ function isLoopbackHttpUrl(url: string | undefined): boolean {
 export function createInferenceClient(
   options: InferenceClientOptions,
 ): InferenceClient {
-  const { apiUrl, apiKey, openaiApiKey, anthropicApiKey, ollamaBaseUrl, getModelProvider } = options;
+  const { apiUrl, apiKey, openaiApiKey, anthropicApiKey, ollamaBaseUrl, getModelProvider, localOnly } = options;
   const httpClient = new ResilientHttpClient({
     baseTimeout: INFERENCE_TIMEOUT_MS,
     retryableStatuses: [429, 500, 502, 503, 504],
@@ -69,6 +71,7 @@ export function createInferenceClient(
       anthropicApiKey,
       ollamaBaseUrl,
       getModelProvider,
+      localOnly,
     });
 
     // Newer models (o-series, gpt-5.x, gpt-4.1) require max_completion_tokens.
@@ -134,6 +137,7 @@ export function createInferenceClient(
    * Still functional as a fallback; router takes priority when available.
    */
   const setLowComputeMode = (enabled: boolean): void => {
+    if (options.localOnly) return;
     if (enabled) {
       currentModel = options.lowComputeModel || "gpt-5-mini";
       maxTokens = 4096;
@@ -181,8 +185,16 @@ function resolveInferenceBackend(
     anthropicApiKey?: string;
     ollamaBaseUrl?: string;
     getModelProvider?: (modelId: string) => string | undefined;
+    localOnly?: boolean;
   },
 ): InferenceBackend {
+  if (keys.localOnly) {
+    if (!keys.ollamaBaseUrl) {
+      throw new Error("Local-only inference requires Ollama. Start Ollama or set OLLAMA_BASE_URL.");
+    }
+    return "ollama";
+  }
+
   // Registry-based routing: most accurate, no name guessing
   if (keys.getModelProvider) {
     const provider = keys.getModelProvider(model);

@@ -45,12 +45,19 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   }
   console.log(chalk.dim(`  Private key stored at: ${getAutomatonDir()}/wallet.json\n`));
 
-  // ─── 2. Provision API key ─────────────────────────────────────
+  // ─── 2. Select local-only or Conway operation ─────────────────
+  const operatingMode = await promptOptional("Operating mode (local-only or conway) [local-only]");
+  const localOnly = operatingMode.trim().toLowerCase() !== "conway";
+
+  // ─── 3. Optional Conway API key ───────────────────────────────
   const provisionLabel = walletChainType === "solana"
     ? "  [2/6] Provisioning Conway API key (SIWS)..."
     : "  [2/6] Provisioning Conway API key (SIWE)...";
-  console.log(chalk.cyan(provisionLabel));
   let apiKey = "";
+  if (localOnly) {
+    console.log(chalk.green("  Local-only mode selected; no Conway key or cloud account is needed.\n"));
+  } else {
+    console.log(chalk.cyan(provisionLabel));
   try {
     const result = await provision(undefined, walletChainType === "solana" ? chainIdentity : undefined);
     apiKey = result.apiKey;
@@ -75,11 +82,12 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     }
   }
 
-  if (!apiKey) {
-    console.log(chalk.yellow("  No API key set. The automaton will have limited functionality.\n"));
+  if (!apiKey && !localOnly) {
+    console.log(chalk.yellow("  No API key set. Conway mode may not start until a key is configured.\n"));
+  }
   }
 
-  // ─── 3. Interactive questions ─────────────────────────────────
+  // ─── 4. Interactive questions ─────────────────────────────────
   console.log(chalk.cyan("  [3/6] Setup questions\n"));
 
   const name = await promptRequired("What do you want to name your automaton?");
@@ -93,22 +101,26 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
   const creatorAddressLabel = walletChainType === "solana"
     ? "Creator wallet address (base58)"
     : "Creator wallet address (0x...)";
-  const creatorAddress = await promptAddress(creatorAddressLabel, walletChainType);
+  const creatorAddress = localOnly ? walletAddress : await promptAddress(creatorAddressLabel, walletChainType);
   console.log(chalk.green(`  Creator: ${creatorAddress}\n`));
 
-  console.log(chalk.white("  Optional: bring your own inference provider keys (press Enter to skip)."));
-  const openaiApiKey = await promptOptional("OpenAI API key (sk-..., optional)");
+  console.log(chalk.white(localOnly ? "  Local inference configuration." : "  Optional: bring your own inference provider keys (press Enter to skip)."));
+  const openaiApiKey = localOnly ? undefined : await promptOptional("OpenAI API key (sk-..., optional)");
   if (openaiApiKey && !openaiApiKey.startsWith("sk-")) {
     console.log(chalk.yellow("  Warning: OpenAI keys usually start with sk-. Saving anyway."));
   }
 
-  const anthropicApiKey = await promptOptional("Anthropic API key (sk-ant-..., optional)");
+  const anthropicApiKey = localOnly ? undefined : await promptOptional("Anthropic API key (sk-ant-..., optional)");
   if (anthropicApiKey && !anthropicApiKey.startsWith("sk-ant-")) {
     console.log(chalk.yellow("  Warning: Anthropic keys usually start with sk-ant-. Saving anyway."));
   }
 
-  const ollamaInput = await promptOptional("Ollama base URL (http://localhost:11434, optional)");
+  const ollamaInput = await promptWithDefault("Ollama base URL", "http://localhost:11434");
   const ollamaBaseUrl = ollamaInput || undefined;
+  const profileInput = await promptOptional("Memory profile (16gb or 32gb) [16gb]");
+  const localProfile: "16gb" | "32gb" = profileInput.trim().toLowerCase() === "32gb" ? "32gb" : "16gb";
+  const modelInput = await promptWithDefault("Ollama model", "llama3.1:8b");
+  const inferenceModel = modelInput || "llama3.1:8b";
   if (ollamaBaseUrl) {
     console.log(chalk.green(`  Ollama URL saved: ${ollamaBaseUrl}`));
   }
@@ -120,7 +132,7 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
       ollamaBaseUrl ? "Ollama" : null,
     ].filter(Boolean).join(", ");
     console.log(chalk.green(`  Provider keys/URLs saved: ${providers}\n`));
-  } else {
+  } else if (!localOnly) {
     console.log(chalk.dim("  No provider keys set. Inference will default to Conway.\n"));
   }
 
@@ -167,12 +179,15 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
     genesisPrompt,
     creatorAddress,
     registeredWithConway: !!apiKey,
-    sandboxId: env.sandboxId,
+    sandboxId: localOnly ? "" : env.sandboxId,
     walletAddress,
     apiKey,
     openaiApiKey: openaiApiKey || undefined,
     anthropicApiKey: anthropicApiKey || undefined,
     ollamaBaseUrl,
+    localOnly,
+    localProfile,
+    inferenceModel,
     treasuryPolicy,
     chainType: walletChainType,
   });
@@ -200,12 +215,20 @@ export async function runSetupWizard(): Promise<AutomatonConfig> {
 
   // Default skills
   const skillsDir = config.skillsDir || "~/.automaton/skills";
-  installDefaultSkills(skillsDir);
-  console.log(chalk.green("  Default skills installed (conway-compute, conway-payments, survival)\n"));
+  if (!localOnly) {
+    installDefaultSkills(skillsDir);
+    console.log(chalk.green("  Default Conway skills installed.\n"));
+  } else {
+    console.log(chalk.green("  Local-only profile saved; no Conway skills installed.\n"));
+  }
 
   // ─── 6. Funding guidance ──────────────────────────────────────
   console.log(chalk.cyan("  [6/6] Funding\n"));
-  showFundingPanel(walletAddress, walletChainType);
+  if (localOnly) {
+    console.log(chalk.green("  Local mode is ready. Start Ollama and make sure the selected model is installed.\n"));
+  } else {
+    showFundingPanel(walletAddress, walletChainType);
+  }
 
   closePrompts();
 

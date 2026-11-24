@@ -29,7 +29,12 @@ export class InferenceRouter {
   private registry: ModelRegistry;
   private budget: InferenceBudgetTracker;
 
-  constructor(db: Database, registry: ModelRegistry, budget: InferenceBudgetTracker) {
+  constructor(
+    db: Database,
+    registry: ModelRegistry,
+    budget: InferenceBudgetTracker,
+    private readonly allowedProviders?: readonly string[],
+  ) {
     this.db = db;
     this.registry = registry;
     this.budget = budget;
@@ -201,7 +206,7 @@ export class InferenceRouter {
     if (preference && preference.candidates.length > 0) {
       for (const candidateId of preference.candidates) {
         const entry = this.registry.get(candidateId);
-        if (entry && entry.enabled) {
+        if (entry && entry.enabled && (!this.allowedProviders || this.allowedProviders.includes(entry.provider))) {
           return entry;
         }
       }
@@ -219,6 +224,7 @@ export class InferenceRouter {
       if (!modelId) continue;
       const entry = this.registry.get(modelId);
       if (!entry || !entry.enabled) continue;
+      if (this.allowedProviders && !this.allowedProviders.includes(entry.provider)) continue;
       const isFree = entry.costPer1kInput === 0 && entry.costPer1kOutput === 0;
       const tierOk = tierRank >= (TIER_ORDER[entry.tierMinimum] ?? 0);
       if (isFree || tierOk) {

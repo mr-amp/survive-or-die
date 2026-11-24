@@ -51,6 +51,12 @@ export class LocalWorkerPool {
   constructor(private readonly config: LocalWorkerConfig) {}
 
   spawn(task: TaskNode): { address: string; name: string; sandboxId: string } {
+    const limit = this.config.config.localOnly
+      ? (this.config.config.localProfile === "32gb" ? 2 : 1)
+      : Math.max(1, this.config.config.maxChildren || 3);
+    if (this.activeWorkers.size >= limit) {
+      throw new Error(`Local worker limit reached (${limit}); task remains persisted for a later retry.`);
+    }
     const workerId = `local-worker-${ulid()}`;
     const workerName = `worker-${task.agentRole ?? "generalist"}-${workerId.slice(-6)}`;
     const address = `local://${workerId}`;

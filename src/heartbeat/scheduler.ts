@@ -74,6 +74,7 @@ export class DurableScheduler {
     private readonly tasks: Map<string, HeartbeatTaskFn>,
     private readonly legacyContext: HeartbeatLegacyContext,
     private readonly onWakeRequest?: (reason: string) => void,
+    private readonly localOnly = false,
   ) {
     this.ownerId = `scheduler-${Date.now().toString(36)}`;
   }
@@ -96,6 +97,7 @@ export class DurableScheduler {
         this.config,
         this.legacyContext.identity.address,
         this.legacyContext.identity.chainType,
+        this.localOnly,
       );
 
       // Get tasks that are due
@@ -122,6 +124,8 @@ export class DurableScheduler {
     const now = new Date();
 
     return schedule.filter((row) => {
+      // Ignore stale database schedules whose task is disabled in this runtime.
+      if (!this.tasks.has(row.taskName)) return false;
       // Skip disabled tasks
       if (!row.enabled) return false;
 

@@ -18,6 +18,7 @@ import { createInferenceClient } from "./conway/inference.js";
 import { createHeartbeatDaemon } from "./heartbeat/daemon.js";
 import {
   loadHeartbeatConfig,
+  createLocalHeartbeatConfig,
   syncHeartbeatToDb,
 } from "./heartbeat/config.js";
 import { consumeNextWakeEvent, insertWakeEvent } from "./state/database.js";
@@ -195,9 +196,37 @@ async function run(): Promise<void> {
   // Load wallet (chain-aware)
   const { account, chainIdentity, chainType: walletChainType } = await getWallet();
   const resolvedChainType = config.chainType || walletChainType || "evm";
-  const apiKey = config.conwayApiKey || loadApiKeyFromConfig();
-  if (!apiKey) {
-    logger.error("No API key found. Run: automaton --provision");
+  const localOnly = config.localOnly === true;
+  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || config.ollamaBaseUrl;
+  if (localOnly) {
+    if (!ollamaBaseUrl) {
+      logger.error("Local-only mode requires Ollama. Start Ollama or set ollamaBaseUrl / OLLAMA_BASE_URL; Conway will not be used.");
+      process.exit(1);
+    }
+    try {
+      const ollamaUrl = new URL(ollamaBaseUrl);
+      if (ollamaUrl.protocol !== "http:" || !["localhost", "127.0.0.1", "::1"].includes(ollamaUrl.hostname.toLowerCase())) {
+        throw new Error("Local-only mode accepts Ollama on this computer only (localhost/127.0.0.1/::1 over HTTP).");
+      }
+      const response = await fetch(`${ollamaBaseUrl.replace(/\/$/, "")}/api/tags`, {
+        signal: AbortSignal.timeout(5_000),
+      });
+      if (!response.ok) throw new Error(`Ollama returned HTTP ${response.status}`);
+      const payload = await response.json() as { models?: Array<{ name?: string; model?: string }> };
+      const models = Array.isArray(payload.models) ? payload.models.map((model) => model.name || model.model).filter(Boolean) : [];
+      if (!models.includes(config.inferenceModel)) {
+        logger.error(`Ollama model "${config.inferenceModel}" is not installed. Run "ollama pull ${config.inferenceModel}" or choose an installed model in automaton.json. Detected: ${models.join(", ") || "none"}`);
+        process.exit(1);
+      }
+    } catch (error) {
+      logger.error(`Local-only mode cannot reach Ollama at ${ollamaBaseUrl}: ${error instanceof Error ? error.message : String(error)}. Start Ollama and retry; no cloud fallback will occur.`);
+      process.exit(1);
+    }
+    logger.info("Local-only mode enabled. Conway and paid inference providers are disabled.");
+  }
+  const apiKey = localOnly ? "" : config.conwayApiKey || loadApiKeyFromConfig();
+  if (!localOnly && !apiKey) {
+    logger.error("No Conway API key found. Run automaton --setup to configure local-only mode or --provision for optional Conway mode.");
     process.exit(1);
   }
 
@@ -246,7 +275,7 @@ async function run(): Promise<void> {
 
   // Register automaton identity (one-time, immutable)
   const registrationState = db.getIdentity("conwayRegistrationStatus");
-  if (registrationState !== "registered") {
+  if (!localOnly && registrationState !== "registered") {
     try {
       const genesisPromptHash = config.genesisPrompt
         ? keccak256(toHex(config.genesisPrompt))
@@ -276,9 +305,6 @@ async function run(): Promise<void> {
     }
   }
 
-  // Resolve Ollama base URL: env var takes precedence over config
-  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || config.ollamaBaseUrl;
-
   // Create inference client — pass a live registry lookup so model names like
   // "gpt-oss:120b" route to Ollama based on their registered provider, not heuristics.
   const modelRegistry = new ModelRegistry(db.raw);
@@ -289,9 +315,10 @@ async function run(): Promise<void> {
     defaultModel: config.inferenceModel,
     maxTokens: config.maxTokensPerTurn,
     lowComputeModel: config.modelStrategy?.lowComputeModel || "gpt-5-mini",
-    openaiApiKey: config.openaiApiKey,
-    anthropicApiKey: config.anthropicApiKey,
+    openaiApiKey: localOnly ? undefined : config.openaiApiKey,
+    anthropicApiKey: localOnly ? undefined : config.anthropicApiKey,
     ollamaBaseUrl,
+    localOnly,
     getModelProvider: (modelId) => modelRegistry.get(modelId)?.provider,
   });
 
@@ -301,7 +328,7 @@ async function run(): Promise<void> {
 
   // Create social client (chain-aware: pass ChainIdentity for Solana signing)
   let social: SocialClientInterface | undefined;
-  if (config.socialRelayUrl) {
+  if (!localOnly && config.socialRelayUrl) {
     social = createSocialClient(config.socialRelayUrl, resolvedChainType === "solana" ? chainIdentity : account);
     logger.info(`[${new Date().toISOString()}] Social relay: ${config.socialRelayUrl}`);
   }
@@ -314,7 +341,10 @@ async function run(): Promise<void> {
 
   // Load and sync heartbeat config
   const heartbeatConfigPath = resolvePath(config.heartbeatConfigPath);
-  const heartbeatConfig = loadHeartbeatConfig(heartbeatConfigPath);
+  const loadedHeartbeatConfig = loadHeartbeatConfig(heartbeatConfigPath);
+  const heartbeatConfig = localOnly
+    ? createLocalHeartbeatConfig(loadedHeartbeatConfig)
+    : loadedHeartbeatConfig;
   syncHeartbeatToDb(heartbeatConfig, db);
 
   // Load skills
@@ -328,11 +358,13 @@ async function run(): Promise<void> {
   }
 
   // Initialize state repo (git)
-  try {
-    await initStateRepo(conway);
-    logger.info(`[${new Date().toISOString()}] State repo initialized.`);
-  } catch (err: any) {
-    logger.warn(`[${new Date().toISOString()}] State repo init failed: ${err.message}`);
+  if (!localOnly) {
+    try {
+      await initStateRepo(conway);
+      logger.info(`[${new Date().toISOString()}] State repo initialized.`);
+    } catch (err: any) {
+      logger.warn(`[${new Date().toISOString()}] State repo init failed: ${err.message}`);
+    }
   }
 
   // Automatic purchases are disabled. Any future funding must be initiated
@@ -348,6 +380,7 @@ async function run(): Promise<void> {
     rawDb: db.raw,
     conway,
     social,
+    localOnly,
     onWakeRequest: (reason) => {
       logger.info(`[HEARTBEAT] Wake request: ${reason}`);
       // Phase 1.1: Use wake_events table instead of KV wake_request

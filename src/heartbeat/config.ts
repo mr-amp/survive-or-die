@@ -101,6 +101,29 @@ export function loadHeartbeatConfig(configPath?: string): HeartbeatConfig {
 }
 
 /**
+ * Return a heartbeat schedule that only contains local database/process work.
+ * This also removes old cloud schedules when a user switches an existing config
+ * to local-only mode.
+ */
+export function createLocalHeartbeatConfig(config: HeartbeatConfig): HeartbeatConfig {
+  const localDefaults: HeartbeatEntry[] = [
+    { name: "heartbeat_ping", schedule: "*/15 * * * *", task: "heartbeat_ping", enabled: true },
+    { name: "report_metrics", schedule: "*/30 * * * *", task: "report_metrics", enabled: true },
+    { name: "soul_reflection", schedule: "0 */6 * * *", task: "soul_reflection", enabled: true },
+  ];
+  const configuredByName = new Map(config.entries.map((entry) => [entry.name, entry]));
+  return {
+    ...config,
+    entries: localDefaults.map((entry) => {
+      const configured = configuredByName.get(entry.name);
+      return configured
+        ? { ...entry, ...configured, task: entry.task }
+        : entry;
+    }),
+  };
+}
+
+/**
  * Save heartbeat config to YAML file.
  */
 export function saveHeartbeatConfig(
