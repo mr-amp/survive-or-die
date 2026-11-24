@@ -6,6 +6,7 @@
  */
 
 import path from "node:path";
+import { getUserHomeDirectory } from "../platform/home.js";
 import type {
   AutomatonIdentity,
   AutomatonConfig,
@@ -157,7 +158,7 @@ export async function runAgentLoop(
       }
 
       const providersPath = path.join(
-        process.env.HOME || process.cwd(),
+        getUserHomeDirectory(),
         ".automaton",
         "inference-providers.json",
       );
