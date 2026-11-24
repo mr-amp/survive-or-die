@@ -6,6 +6,8 @@
  */
 
 import path from "node:path";
+import os from "node:os";
+import { hasMemoryForLocalWorker } from "../platform/resources.js";
 import { ulid } from "ulid";
 import { createLogger } from "../observability/logger.js";
 import type { HarnessContext, WorkerInferenceClient } from "../agent/harness-types.js";
@@ -56,6 +58,9 @@ export class LocalWorkerPool {
       : Math.max(1, this.config.config.maxChildren || 3);
     if (this.activeWorkers.size >= limit) {
       throw new Error(`Local worker limit reached (${limit}); task remains persisted for a later retry.`);
+    }
+    if (this.config.config.localOnly && !hasMemoryForLocalWorker(os.freemem(), this.config.config.localProfile || "16gb")) {
+      throw new Error("Local worker deferred because available RAM is below the profile safety reserve.");
     }
     const workerId = `local-worker-${ulid()}`;
     const workerName = `worker-${task.agentRole ?? "generalist"}-${workerId.slice(-6)}`;

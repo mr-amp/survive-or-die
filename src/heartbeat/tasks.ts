@@ -22,6 +22,7 @@ import { createLogger } from "../observability/logger.js";
 import { getMetrics } from "../observability/metrics.js";
 import { AlertEngine, createDefaultAlertRules } from "../observability/alerts.js";
 import { metricsInsertSnapshot, metricsPruneOld } from "../state/database.js";
+import { getResourceSnapshot } from "../platform/resources.js";
 import { ulid } from "ulid";
 
 const logger = createLogger("heartbeat.tasks");
@@ -403,7 +404,14 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
       const metrics = getMetrics();
       const alerts = getAlertEngine();
 
-      // Update gauges from tick context
+      // Update gauges from tick context and local process/host resources.
+      const resources = getResourceSnapshot();
+      metrics.gauge("process_rss_bytes", resources.processRssBytes);
+      metrics.gauge("process_heap_used_bytes", resources.processHeapUsedBytes);
+      metrics.gauge("process_cpu_percent_one_core", resources.processCpuPercentOneCore);
+      metrics.gauge("system_memory_available_bytes", resources.availableMemoryBytes);
+      metrics.gauge("system_memory_total_bytes", resources.totalMemoryBytes);
+      taskCtx.db.setKV("resource_snapshot", JSON.stringify(resources));
       metrics.gauge("balance_cents", ctx.creditBalance);
       metrics.gauge("survival_tier", tierToInt(ctx.survivalTier));
 

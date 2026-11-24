@@ -199,6 +199,10 @@ async function run(): Promise<void> {
   const localOnly = config.localOnly === true;
   const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || config.ollamaBaseUrl;
   if (localOnly) {
+    if (/:cloud$/i.test(config.inferenceModel)) {
+      logger.error("Local-only mode cannot use Ollama cloud models. Choose a locally downloaded model such as llama3.1:8b.");
+      process.exit(1);
+    }
     if (!ollamaBaseUrl) {
       logger.error("Local-only mode requires Ollama. Start Ollama or set ollamaBaseUrl / OLLAMA_BASE_URL; Conway will not be used.");
       process.exit(1);
