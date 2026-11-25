@@ -3293,7 +3293,7 @@ Model: ${ctx.inference.getDefaultModel()}
     },
     {
       name: "record_business_evidence",
-      description: "Record a dated source claim against an existing business opportunity. Record only what the source actually says, include limitations, and never treat this record as verified: the runtime does not fetch the URL or independently check it.",
+      description: "Record a dated source claim against an existing business opportunity. Classify its topic and whether it appears to support, contradict, or contextualize the hypothesis; these are submitter assessments only. Record date basis and limitations. The runtime does not fetch the URL or independently verify the source or claim.",
       category: "economics",
       riskLevel: "safe",
       parameters: {
@@ -3305,9 +3305,12 @@ Model: ${ctx.inference.getDefaultModel()}
           claim: { type: "string", description: "Specific relevant statement found in the source, not a general conclusion" },
           source_date: { type: "string", description: "Date the source was accessed or published, YYYY-MM-DD" },
           source_type: { type: "string", enum: ["official", "research", "news", "competitor", "other"] },
+          claim_area: { type: "string", enum: ["problem", "demand", "competitors", "pricing", "feasibility", "regulatory", "other"], description: "Research area this specific claim addresses" },
+          position: { type: "string", enum: ["supports", "contradicts", "context"], description: "How the submitter interprets this claim relative to the opportunity hypothesis; not independently verified" },
+          date_basis: { type: "string", enum: ["publication", "accessed", "unknown"], description: "Whether source_date is a publication date, access date, or unknown" },
           limitations: { type: "string", description: "Known uncertainty, scope limits or missing context" },
         },
-        required: ["opportunity_id", "title", "source_url", "claim", "source_date", "source_type", "limitations"],
+        required: ["opportunity_id", "title", "source_url", "claim", "source_date", "source_type", "claim_area", "position", "date_basis", "limitations"],
       },
       execute: async (args, ctx) => {
         const { recordBusinessEvidence } = await import("../economics/opportunities.js");
@@ -3318,10 +3321,13 @@ Model: ${ctx.inference.getDefaultModel()}
           claim: args.claim as string,
           sourceDate: args.source_date as string,
           sourceType: args.source_type as "official" | "research" | "news" | "competitor" | "other",
+          claimArea: args.claim_area as "problem" | "demand" | "competitors" | "pricing" | "feasibility" | "regulatory" | "other",
+          position: args.position as "supports" | "contradicts" | "context",
+          dateBasis: args.date_basis as "publication" | "accessed" | "unknown",
           limitations: args.limitations as string,
         }, ctx.identity.address || "local-agent");
         return evidence
-          ? `Saved evidence record ${evidence.id} as unverified. The source URL was recorded only and has not been fetched or independently checked.`
+          ? `Saved unverified evidence record ${evidence.id} (${evidence.claimArea}; submitter assessment: ${evidence.position}). The coverage report only organizes submitted claims; the source URL was not fetched and neither source reliability nor claim accuracy was independently checked.`
           : "Opportunity not found; no evidence was saved.";
       },
     },
@@ -3355,6 +3361,28 @@ Model: ${ctx.inference.getDefaultModel()}
         return experiment
           ? `Saved experiment proposal ${experiment.id} for owner review. It was not started; the cost is a forecast and no external action or transaction occurred.`
           : "Opportunity not found; no experiment was saved.";
+      },
+    },
+    {
+      name: "assess_business_evidence",
+      description: "Summarize coverage gaps, submitter-marked contradictions, distinct recorded domains and stale publication dates for an opportunity. This is a deterministic coverage checklist only; it does not verify sources, truth, demand, reliability or profitability. Use it before preparing a business proposal.",
+      category: "economics",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: { opportunity_id: { type: "string", description: "Existing persistent opportunity ID" } },
+        required: ["opportunity_id"],
+      },
+      execute: async (args, ctx) => {
+        const { listBusinessOpportunities } = await import("../economics/opportunities.js");
+        const opportunity = listBusinessOpportunities(ctx.db.raw, 100).find((item) => item.id === args.opportunity_id);
+        if (!opportunity) return "Opportunity not found.";
+        return JSON.stringify({
+          opportunityId: opportunity.id,
+          assessment: opportunity.evidenceAssessment,
+          estimatesRemainUnverified: true,
+          sourceVerification: "not performed",
+        });
       },
     },
     {

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -25,6 +25,12 @@ describe("authenticated dashboard business workflow", () => {
       const token = readFileSync(tokenPath, "utf8").trim();
       const base = `http://127.0.0.1:${dashboard.getPort()}`;
       await new Promise((resolve) => setTimeout(resolve, 25));
+      const logsPath = join(home, ".automaton", "logs");
+      mkdirSync(logsPath, { recursive: true });
+      writeFileSync(join(logsPath, "self-mod-isolation-readiness.json"), JSON.stringify({
+        detectedAt: "2026-11-25T00:00:00.000Z", operatingSystem: "Windows", edition: "Professional",
+        readyForOwnerReview: true, candidateExecutionEnabled: true, blockers: [],
+      }));
       const opportunity = createBusinessOpportunity(db.raw, {
         title: "Review workflow", customerSegment: "Local shops", customerProblem: "Rework",
         valueProposition: "Better tracking", evidenceSummary: "Hypothesis", forecastDays: 30,
@@ -33,6 +39,7 @@ describe("authenticated dashboard business workflow", () => {
       recordBusinessEvidence(db.raw, {
         opportunityId: opportunity.id, title: "Public source", sourceUrl: "https://example.test/source",
         claim: "A dated source claim", sourceDate: "2026-11-10", sourceType: "official",
+        claimArea: "demand", position: "supports", dateBasis: "publication",
         limitations: "Not independently checked",
       }, "local-agent");
       transitionBusinessOpportunity(db.raw, opportunity.id, "shortlisted");
@@ -75,7 +82,10 @@ describe("authenticated dashboard business workflow", () => {
       expect(await pipeline.json()).toMatchObject({
         automaticFinancialExecutionEnabled: false,
         summary: { actualIncomeCents: 1250, actualExpenseCents: 0, actualProfitCents: 1250 },
-        items: [{ evidenceItems: [{ title: "Public source", verificationStatus: "unverified" }] }],
+        items: [{
+          evidenceAssessment: { classification: "research_gaps", evidenceCount: 1, uniqueSourceDomains: 1 },
+          evidenceItems: [{ title: "Public source", verificationStatus: "unverified", claimArea: "demand", position: "supports", dateBasis: "publication" }],
+        }],
       });
 
       const selfChange = createSelfImprovementProposal(db.raw, {
@@ -85,6 +95,14 @@ describe("authenticated dashboard business workflow", () => {
       });
       const selfImprovementsPath = `${base}/api/self-improvements`;
       expect((await fetch(selfImprovementsPath)).status).toBe(401);
+      const isolationPath = `${selfImprovementsPath}/isolation-readiness`;
+      expect((await fetch(isolationPath)).status).toBe(401);
+      const isolationResponse = await fetch(isolationPath, { headers: { Authorization: `Bearer ${token}` } });
+      expect(isolationResponse.status).toBe(200);
+      expect(await isolationResponse.json()).toMatchObject({
+        executionEnabled: false,
+        report: { operatingSystem: "Windows", readyForOwnerReview: true, candidateExecutionEnabled: false },
+      });
       const unauthorizedPreparation = await fetch(`${selfImprovementsPath}/${selfChange.id}/prepare-workspace`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
       });

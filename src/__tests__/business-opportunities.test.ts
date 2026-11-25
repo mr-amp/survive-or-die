@@ -141,10 +141,20 @@ describe("persistent business opportunity pipeline", () => {
     const recorded = await evidenceTool!.execute({
       opportunity_id: opportunities[0].id, title: "Official source", source_url: "https://example.test/official",
       claim: "A specific public statement", source_date: "2026-11-01", source_type: "official",
+      claim_area: "demand", position: "supports", date_basis: "publication",
       limitations: "Context not independently reviewed",
     }, { db, identity: { address: "local-agent" } } as unknown as ToolContext);
-    expect(recorded).toContain("Saved evidence record");
+    expect(recorded).toContain("Saved unverified evidence record");
     expect(listBusinessOpportunities(db.raw)[0].evidenceItems[0].verificationStatus).toBe("unverified");
+    const assessmentTool = createBuiltinTools("local-sandbox").find((candidate) => candidate.name === "assess_business_evidence");
+    const assessment = await assessmentTool!.execute(
+      { opportunity_id: opportunities[0].id },
+      { db, identity: { address: "local-agent" } } as unknown as ToolContext,
+    );
+    expect(JSON.parse(assessment as string)).toMatchObject({
+      assessment: { classification: "research_gaps", evidenceCount: 1 },
+      sourceVerification: "not performed",
+    });
   });
 
   it("persists dated evidence claims as unverified, validates source URLs, and deduplicates retries", () => {
@@ -161,15 +171,46 @@ describe("persistent business opportunity pipeline", () => {
       claim: "The cited report describes the segment size.",
       sourceDate: "2026-11-01",
       sourceType: "research" as const,
+      claimArea: "demand" as const,
+      position: "supports" as const,
+      dateBasis: "publication" as const,
       limitations: "Report methods and current relevance have not been checked.",
     };
     const first = recordBusinessEvidence(db.raw, input, "local-worker");
     const retry = recordBusinessEvidence(db.raw, input, "local-worker");
+    const conflictingRetry = recordBusinessEvidence(db.raw, { ...input, claimArea: "problem", position: "contradicts" }, "local-worker");
     expect(retry?.id).toBe(first?.id);
+    expect(conflictingRetry).toMatchObject({ id: first?.id, claimArea: "demand", position: "supports" });
     expect(first).toMatchObject({ verificationStatus: "unverified", submittedBy: "local-worker" });
+    expect(first).toMatchObject({ claimArea: "demand", position: "supports", dateBasis: "publication" });
     expect(listBusinessOpportunities(db.raw)[0].evidenceItems).toEqual([first]);
+    expect(listBusinessOpportunities(db.raw)[0].evidenceAssessment).toMatchObject({
+      classification: "research_gaps", evidenceCount: 1, uniqueSourceDomains: 1,
+      missingAreas: ["problem", "competitors", "pricing", "feasibility", "regulatory"],
+    });
     expect(() => recordBusinessEvidence(db.raw, { ...input, sourceUrl: "file:///etc/passwd" }, "local-worker")).toThrow("HTTP or HTTPS");
     expect(() => recordBusinessEvidence(db.raw, { ...input, sourceDate: "2026-99-42" }, "local-worker")).toThrow("valid YYYY-MM-DD");
+    expect(() => recordBusinessEvidence(db.raw, { ...input, sourceDate: "2027-01-01" }, "local-worker")).toThrow("valid YYYY-MM-DD");
+  });
+
+  it("surfaces contradictions, stale publication dates and source diversity without claiming verification", () => {
+    const db = makeDb();
+    const opportunity = createBusinessOpportunity(db.raw, {
+      title: "Evidence assessment", customerSegment: "Small firms", customerProblem: "Manual work",
+      valueProposition: "Automation", evidenceSummary: "Unverified", forecastDays: 30,
+      confidence: 0.2, risks: "Demand unknown",
+    }, "local-agent");
+    const now = new Date("2026-11-25T12:00:00.000Z");
+    const base = { opportunityId: opportunity.id, title: "Source", claim: "A concrete source claim", sourceType: "research" as const, limitations: "Not independently checked" };
+    recordBusinessEvidence(db.raw, { ...base, sourceUrl: "https://market.example.test/a", sourceDate: "2020-01-01", claimArea: "problem", position: "supports", dateBasis: "publication" }, "worker", now);
+    recordBusinessEvidence(db.raw, { ...base, sourceUrl: "https://competitor.example.test/b", sourceDate: "2026-11-20", claimArea: "competitors", position: "contradicts", dateBasis: "accessed" }, "worker", now);
+    const assessment = listBusinessOpportunities(db.raw)[0].evidenceAssessment;
+    expect(assessment).toMatchObject({
+      classification: "contradictory_claims", evidenceCount: 2, uniqueSourceDomains: 2,
+      contradictoryAreas: ["competitors"], stalePublishedEvidenceCount: 1, unknownDateBasisCount: 0,
+    });
+    expect(assessment.notice).toContain("Source reliability");
+    expect(listBusinessOpportunities(db.raw)[0].evidenceItems.every((item) => item.verificationStatus === "unverified")).toBe(true);
   });
 
   it("keeps the actual balance complete while limiting the displayed ledger history", () => {

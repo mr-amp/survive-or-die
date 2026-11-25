@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -916,6 +916,16 @@ export const MIGRATION_V21 = `
     UNIQUE(opportunity_id, source_url, title, claim, source_date, source_type, limitations)
   );
   CREATE INDEX idx_business_evidence_opportunity ON business_opportunity_evidence(opportunity_id, created_at DESC);
+`;
+
+export const MIGRATION_V22 = `
+  -- Schema version: 22. Evidence topic and stance are agent-reported; truth remains unverified.
+  ALTER TABLE business_opportunity_evidence ADD COLUMN claim_area TEXT NOT NULL DEFAULT 'other'
+    CHECK(claim_area IN ('problem','demand','competitors','pricing','feasibility','regulatory','other'));
+  ALTER TABLE business_opportunity_evidence ADD COLUMN position TEXT NOT NULL DEFAULT 'context'
+    CHECK(position IN ('supports','contradicts','context'));
+  ALTER TABLE business_opportunity_evidence ADD COLUMN date_basis TEXT NOT NULL DEFAULT 'unknown'
+    CHECK(date_basis IN ('publication','accessed','unknown'));
 `;
 
 export const MIGRATION_V10 = `
