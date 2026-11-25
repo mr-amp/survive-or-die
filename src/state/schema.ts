@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 24;
+export const SCHEMA_VERSION = 25;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -955,6 +955,50 @@ export const MIGRATION_V24 = `
   -- Schema version: 24. Evidence may cite a successful retrieval record without upgrading factual verification.
   ALTER TABLE business_opportunity_evidence ADD COLUMN retrieval_id TEXT REFERENCES business_research_retrievals(id) ON DELETE SET NULL;
   CREATE INDEX idx_business_evidence_retrieval ON business_opportunity_evidence(retrieval_id) WHERE retrieval_id IS NOT NULL;
+`;
+
+export const MIGRATION_V25 = `
+  -- Schema version: 25. Bounded, versioned business deliverables for owner review.
+  CREATE TABLE business_deliverables (
+    id TEXT PRIMARY KEY,
+    opportunity_id TEXT NOT NULL REFERENCES business_opportunities(id) ON DELETE CASCADE,
+    task_id TEXT REFERENCES task_graph(id) ON DELETE SET NULL,
+    artifact_type TEXT NOT NULL CHECK(artifact_type IN ('business_plan','market_report','product_spec','prototype_spec','website_draft','experiment_spec')),
+    title TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('draft','pending_review','approved_for_internal_use','changes_requested','archived')),
+    created_by TEXT NOT NULL,
+    reviewed_by TEXT,
+    review_note TEXT,
+    current_version INTEGER NOT NULL DEFAULT 1 CHECK(current_version > 0),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    reviewed_at TEXT,
+    UNIQUE(opportunity_id, artifact_type, title)
+  );
+  CREATE INDEX idx_business_deliverables_opportunity ON business_deliverables(opportunity_id, updated_at DESC);
+  CREATE INDEX idx_business_deliverables_status ON business_deliverables(status, updated_at DESC);
+  CREATE TABLE business_deliverable_versions (
+    id TEXT PRIMARY KEY,
+    deliverable_id TEXT NOT NULL REFERENCES business_deliverables(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL CHECK(version > 0),
+    content_sha256 TEXT NOT NULL CHECK(length(content_sha256) = 64),
+    byte_size INTEGER NOT NULL CHECK(byte_size BETWEEN 1 AND 65536),
+    storage_path TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(deliverable_id, version)
+  );
+  CREATE INDEX idx_business_deliverable_versions_latest ON business_deliverable_versions(deliverable_id, version DESC);
+  CREATE TABLE business_deliverable_events (
+    id TEXT PRIMARY KEY,
+    deliverable_id TEXT NOT NULL REFERENCES business_deliverables(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL CHECK(event_type IN ('prepared','version_added','reviewed')),
+    actor_kind TEXT NOT NULL CHECK(actor_kind IN ('agent','owner','system')),
+    actor_id TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_business_deliverable_events ON business_deliverable_events(deliverable_id, created_at DESC);
 `;
 
 export const MIGRATION_V10 = `

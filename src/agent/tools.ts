@@ -3252,7 +3252,7 @@ Model: ${ctx.inference.getDefaultModel()}
     {
       name: "propose_business_opportunity",
       description:
-        "Save a business opportunity hypothesis and, when within the bounded active-work limit, automatically create its persistent research and feasibility tasks in the existing scheduler. Include evidence and risks honestly. Estimates are not validated facts; tasks use public retrieval only with owner opt-in and exact host allowlisting. This tool does not contact customers, publish anything, spend money, create accounts, or make commitments.",
+        "Save a business opportunity hypothesis and, when within the bounded active-work limit, automatically create persistent research, feasibility, and dependent product-planning tasks in the existing scheduler. Include evidence and risks honestly. Estimates are not validated facts; tasks use public retrieval only with owner opt-in and exact host allowlisting. This tool does not contact customers, publish anything, spend money, create accounts, or make commitments.",
       category: "economics",
       riskLevel: "caution",
       parameters: {
@@ -3291,7 +3291,7 @@ Model: ${ctx.inference.getDefaultModel()}
         }, ctx.identity.address || "local-agent");
         const plan = createOpportunityValidationGoal(ctx.db.raw, opportunity.id);
         const progression = plan?.goalId
-          ? ` Persistent research goal ${plan.goalId} ${plan.existing ? "already exists" : "was added to the existing task scheduler"}; it contains bounded research and feasibility tasks.`
+          ? ` Persistent research goal ${plan.goalId} ${plan.existing ? "already exists" : "was added to the existing task scheduler"}; it contains bounded research, feasibility, and dependent product-planning tasks.`
           : plan?.capacityReached
             ? " No new research goal was created because the limit of three active business research goals has been reached."
             : " No research goal was created.";
@@ -3406,6 +3406,37 @@ Model: ${ctx.inference.getDefaultModel()}
         return experiment
           ? `Saved experiment proposal ${experiment.id} for owner review. It was not started; the cost is a forecast and no external action or transaction occurred.`
           : "Opportunity not found; no experiment was saved.";
+      },
+    },
+    {
+      name: "prepare_business_deliverable",
+      description: "Prepare or version a bounded local Markdown deliverable for an existing business opportunity. Supported types include business plans, market reports, product and prototype specifications, website drafts, and experiment specifications. Link it to an opportunity validation task when available. Content is stored locally for authenticated owner review; it is never executed, published, sent, or treated as factual evidence. Mark estimates and assumptions clearly.",
+      category: "economics",
+      riskLevel: "caution",
+      parameters: {
+        type: "object",
+        properties: {
+          opportunity_id: { type: "string", description: "Existing opportunity this deliverable supports" },
+          task_id: { type: "string", description: "Optional task from that opportunity's validation goal" },
+          artifact_type: { type: "string", enum: ["business_plan", "market_report", "product_spec", "prototype_spec", "website_draft", "experiment_spec"] },
+          title: { type: "string", description: "Stable title; subsequent drafts with the same type and title become a new version" },
+          content: { type: "string", description: "Markdown draft, at most 64 KiB; separate sourced observations from hypotheses and forecasts" },
+        },
+        required: ["opportunity_id", "artifact_type", "title", "content"],
+      },
+      execute: async (args, ctx) => {
+        const [{ saveBusinessDeliverable }, { getAutomatonDir }] = await Promise.all([
+          import("../economics/deliverables.js"),
+          import("../identity/wallet.js"),
+        ]);
+        const deliverable = saveBusinessDeliverable(ctx.db.raw, getAutomatonDir(), {
+          opportunityId: args.opportunity_id as string,
+          taskId: typeof args.task_id === "string" ? args.task_id : undefined,
+          type: args.artifact_type as import("../economics/deliverables.js").BusinessDeliverableType,
+          title: args.title as string,
+          content: args.content as string,
+        }, ctx.identity.address || "local-agent");
+        return `Saved local ${deliverable.type} deliverable ${deliverable.id}, version ${deliverable.version}, for owner review. SHA-256 ${deliverable.contentSha256}. Content remains private and inactive; no code was executed, nothing was published, and no financial or commercial action was taken.`;
       },
     },
     {

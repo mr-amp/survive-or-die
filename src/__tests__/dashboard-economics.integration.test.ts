@@ -6,6 +6,7 @@ import { createDatabase } from "../state/database.js";
 import { createBusinessOpportunity, proposeBusinessExperiment, recordBusinessEvidence, reviewBusinessExperiment, transitionBusinessOpportunity } from "../economics/opportunities.js";
 import { createTestConfig } from "./mocks.js";
 import { createSelfImprovementProposal } from "../self-mod/proposals.js";
+import { saveBusinessDeliverable } from "../economics/deliverables.js";
 
 describe("authenticated dashboard business workflow", () => {
   it("protects business data and records the owner experiment review without executing it", async () => {
@@ -49,6 +50,10 @@ describe("authenticated dashboard business workflow", () => {
       const experiment = proposeBusinessExperiment(db.raw, {
         opportunityId: opportunity.id, title: "Local prototype test", hypothesis: "H", method: "Local-only mock", successCriteria: "Pass/fail",
       }, "agent");
+      const deliverable = saveBusinessDeliverable(db.raw, join(home, ".automaton"), {
+        opportunityId: opportunity.id, type: "product_spec", title: "Local maintenance tracker",
+        content: "# Product specification\n\nCustomer demand is an unverified hypothesis.",
+      }, "local-agent");
 
       const unauthenticated = await fetch(`${base}/api/experiments`);
       expect(unauthenticated.status).toBe(401);
@@ -76,6 +81,17 @@ describe("authenticated dashboard business workflow", () => {
       const initial = await fetch(`${base}/api/experiments`, { headers });
       expect(initial.status).toBe(200);
       expect((await initial.json() as any).items[0].status).toBe("proposed");
+      expect((await fetch(`${base}/api/deliverables`)).status).toBe(401);
+      const deliverables = await fetch(`${base}/api/deliverables`, { headers });
+      expect(await deliverables.json()).toMatchObject({ executionEnabled: false, publicationEnabled: false,
+        items: [{ id: deliverable.id, status: "pending_review", contentSha256: deliverable.contentSha256 }] });
+      const detail = await fetch(`${base}/api/deliverables/${deliverable.id}`, { headers });
+      expect(await detail.json()).toMatchObject({ item: { content: "# Product specification\n\nCustomer demand is an unverified hypothesis." } });
+      const ownerReview = await fetch(`${base}/api/deliverables/${deliverable.id}/review`, {
+        method: "POST", headers, body: JSON.stringify({ decision: "approved_for_internal_use", note: "For planning only" }),
+      });
+      expect(await ownerReview.json()).toMatchObject({ executionEnabled: false, publicationEnabled: false,
+        item: { status: "approved_for_internal_use", reviewedBy: "owner-dashboard" } });
       const response = await fetch(`${base}/api/experiments/${experiment!.id}/review`, {
         method: "POST", headers,
         body: JSON.stringify({ decision: "completed", outcome: "Owner reports one local prototype session", lesson: "One session is not demand evidence" }),
