@@ -3252,7 +3252,7 @@ Model: ${ctx.inference.getDefaultModel()}
     {
       name: "propose_business_opportunity",
       description:
-        "Save a business opportunity hypothesis and, when within the bounded active-work limit, automatically create persistent research, feasibility, and dependent product-planning tasks in the existing scheduler. Include evidence and risks honestly. Estimates are not validated facts; tasks use public retrieval only with owner opt-in and exact host allowlisting. This tool does not contact customers, publish anything, spend money, create accounts, or make commitments.",
+        "Save a business opportunity hypothesis and, when within the bounded active-work limit, automatically create persistent research, feasibility, product-planning, and non-executing experiment-design tasks in the existing scheduler. Include evidence and risks honestly. Estimates are not validated facts; tasks use public retrieval only with owner opt-in and exact host allowlisting. This tool does not contact customers, publish anything, spend money, create accounts, or make commitments.",
       category: "economics",
       riskLevel: "caution",
       parameters: {
@@ -3291,7 +3291,7 @@ Model: ${ctx.inference.getDefaultModel()}
         }, ctx.identity.address || "local-agent");
         const plan = createOpportunityValidationGoal(ctx.db.raw, opportunity.id);
         const progression = plan?.goalId
-          ? ` Persistent research goal ${plan.goalId} ${plan.existing ? "already exists" : "was added to the existing task scheduler"}; it contains bounded research, feasibility, and dependent product-planning tasks.`
+          ? ` Persistent research goal ${plan.goalId} ${plan.existing ? "already exists" : "was added to the existing task scheduler"}; it contains bounded research, feasibility, product-planning, and dependent experiment-design tasks.`
           : plan?.capacityReached
             ? " No new research goal was created because the limit of three active business research goals has been reached."
             : " No research goal was created.";

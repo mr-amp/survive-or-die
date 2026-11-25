@@ -140,7 +140,7 @@ describe("persistent business opportunity pipeline", () => {
     expect(opportunities).toHaveLength(1);
     expect(opportunities[0].status).toBe("researching");
     expect(opportunities[0].validationGoalId).toBeTruthy();
-    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE goal_id = ?").get(opportunities[0].validationGoalId)).toEqual({ count: 4 });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE goal_id = ?").get(opportunities[0].validationGoalId)).toEqual({ count: 5 });
     const evidenceTool = createBuiltinTools("local-sandbox").find((candidate) => candidate.name === "record_business_evidence");
     const recorded = await evidenceTool!.execute({
       opportunity_id: opportunities[0].id, title: "Official source", source_url: "https://example.test/official",
@@ -249,13 +249,15 @@ describe("persistent business opportunity pipeline", () => {
     expect(retry).toEqual({ goalId: plan?.goalId, existing: true });
     expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_opportunities WHERE id = ? AND validation_goal_id = ?").get(item.id, plan?.goalId)).toEqual({ count: 1 });
     expect(db.raw.prepare("SELECT COUNT(*) AS count FROM goals WHERE id = ?").get(plan?.goalId)).toEqual({ count: 1 });
-    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE goal_id = ?").get(plan?.goalId)).toEqual({ count: 4 });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE goal_id = ?").get(plan?.goalId)).toEqual({ count: 5 });
     const tasks = db.raw.prepare("SELECT title,description,status FROM task_graph WHERE goal_id = ? ORDER BY priority DESC").all(plan?.goalId) as Array<{title:string;description:string;status:string}>;
     expect(tasks.slice(0, 2).every((task) => task.status === "pending")).toBe(true);
     expect(tasks[2].status).toBe("blocked");
     expect(tasks[2].description.toLowerCase()).toContain("do not spend or make commitments");
     expect(tasks[3].status).toBe("blocked");
     expect(tasks[3].description).toContain("prepare_business_deliverable");
+    expect(tasks[4].status).toBe("blocked");
+    expect(tasks[4].description).toContain("propose_business_experiment");
     expect(listBusinessOpportunities(db.raw)[0].validationGoalId).toBe(plan?.goalId);
   });
 
@@ -269,7 +271,7 @@ describe("persistent business opportunity pipeline", () => {
     expect(firstThree.every((result) => result?.goalId)).toBe(true);
     expect(createOpportunityValidationGoal(db.raw, opportunities[0].id)).toMatchObject({ goalId: firstThree[0]?.goalId, existing: true });
     expect(createOpportunityValidationGoal(db.raw, opportunities[3].id)).toMatchObject({ goalId: null, existing: false, capacityReached: true });
-    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph").get()).toEqual({ count: 12 });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph").get()).toEqual({ count: 15 });
   });
 
   it("persists non-executing experiment proposals and feeds only owner-reported lessons back to the agent", async () => {
