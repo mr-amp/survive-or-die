@@ -117,7 +117,7 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 
 ## Checkpoint
 
-Development base for Mission 11: `89cd15e55eb9f834bf14f84346a7a7b85cda2878`. Final Mission 11 commit is recorded after remote tree verification. This remains a pre-release development checkpoint, not a Windows release or production release. `main` remains untouched. See `docs/MISSION10_COMPLETION_REGISTER.md` (now the Mission 11 register) for scoped measures and acceptance limits.
+Development base for Mission 11: `89cd15e55eb9f834bf14f84346a7a7b85cda2878`. Mission 11 feature commit: `2f8cdcd81743f114d0b870f7e331a77891b9ef44`. This remains a pre-release development checkpoint, not a Windows release or production release. `main` remains untouched. See `docs/MISSION10_COMPLETION_REGISTER.md` (now the Mission 11 register) for scoped measures and acceptance limits.
 
 ## Mission 11 — public research and autonomous business task progression
 

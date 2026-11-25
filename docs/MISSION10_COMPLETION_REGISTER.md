@@ -1,6 +1,6 @@
 # Mission 11 software completion register
 
-Assessment date: 25 November 2026. Mission 11 starts from remote branch commit `89cd15e55eb9f834bf14f84346a7a7b85cda2878`; implementation commit is recorded in the checkpoint section after remote integrity verification.
+Assessment date: 25 November 2026. Mission 11 starts from remote branch commit `89cd15e55eb9f834bf14f84346a7a7b85cda2878`; feature implementation commit: `2f8cdcd81743f114d0b870f7e331a77891b9ef44`.
 
 This is a scoped readiness register for the stated local-first Automaton recreation, not a claim that every upstream feature or real-world business outcome is complete. Each criterion has equal weight within its metric. `Implemented and verified` = 1, `partial` = 0.5, `missing` or `not verified` = 0. Hardware-only checks are reported separately. Verification means the named code/tests ran in the development environment; it does not imply Windows or laptop acceptance.
 
@@ -64,4 +64,4 @@ These measures have different denominators and must not be added together. The c
 - Evidence can link to a successful retrieval only when the final URL and opportunity match; dashboard evidence remains marked unverified and shows retrieval timestamp/ID. Business-validation tasks now use this capability only with owner opt-in and allowlisting.
 - Agent proposals automatically create a persistent three-task validation goal when fewer than three business research goals are active. Creation is idempotent; unsupported or external actions remain prohibited. At the cap, no new goal or tasks are created.
 - Deterministic tests use injected DNS and HTTP fixtures; no public network request was made in this environment.
-- Offline verification: 13/13 bounded groups passed across 75 test files (final totals and specific current checkpoint counts recorded in the session handoff). Focused research/business/dashboard tests, security/financial filters, TypeScript, production build and both dependency audits passed. Windows PowerShell, live remote retrieval and Android device access were not tested.
+- Offline verification: all 13 bounded groups passed across 75 test files, totaling 1,693 tests. Focused research/business/dashboard regression: 19 passed. Security filter: 124 passed; financial filter: 38 passed. Frozen offline pnpm install, TypeScript, production build, full and production dependency audits passed; both audits found no known vulnerabilities. Windows PowerShell, live remote retrieval and Android device access were not tested.
