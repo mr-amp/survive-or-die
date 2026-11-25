@@ -57,6 +57,8 @@ import {
   MIGRATION_V20,
   MIGRATION_V21,
   MIGRATION_V22,
+  MIGRATION_V23,
+  MIGRATION_V24,
 } from "./schema.js";
 import type {
   RiskLevel,
@@ -114,6 +116,9 @@ export function createDatabase(dbPath: string): AutomatonDatabase {
 
   // Apply migrations
   applyMigrations(db);
+  // Requests interrupted by a prior process are durable failures, not live work.
+  db.prepare(`UPDATE business_research_retrievals SET status='failed', error_code='interrupted_before_completion'
+    WHERE status='pending'`).run();
 
   // Ensure version is recorded
   const versionRow = db
@@ -679,6 +684,14 @@ function applyMigrations(db: DatabaseType): void {
     {
       version: 22,
       apply: () => db.exec(MIGRATION_V22),
+    },
+    {
+      version: 23,
+      apply: () => db.exec(MIGRATION_V23),
+    },
+    {
+      version: 24,
+      apply: () => db.exec(MIGRATION_V24),
     },
   ];
 

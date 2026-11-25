@@ -83,6 +83,10 @@ export interface AutomatonConfig {
   dashboardPort?: number;
   /** Chain type for this automaton. Defaults to "evm" if absent. */
   chainType?: ChainType;
+  /** Public business research is off until the owner opts in. */
+  publicResearchEnabled?: boolean;
+  /** Exact HTTPS hosts the owner permits for read-only public research. */
+  publicResearchAllowedHosts?: string[];
 }
 
 export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
@@ -100,6 +104,8 @@ export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
   socialRelayUrl: "https://social.conway.tech",
   dashboardEnabled: true,
   dashboardPort: 41555,
+  publicResearchEnabled: false,
+  publicResearchAllowedHosts: [],
 };
 
 // ─── Agent State ─────────────────────────────────────────────────

@@ -15,10 +15,13 @@ describe("authenticated dashboard business workflow", () => {
     const db = createDatabase(":memory:");
     let dashboard: { close(): void; getPort(): number } | undefined;
     try {
+      const config = createTestConfig({ dashboardPort: 40973, localOnly: true });
+      mkdirSync(join(home, ".automaton"), { recursive: true });
+      writeFileSync(join(home, ".automaton", "automaton.json"), JSON.stringify(config));
       const { startDashboardServer } = await import("../dashboard/server.js");
       dashboard = startDashboardServer({
         db,
-        config: createTestConfig({ dashboardPort: 40973 }),
+        config,
         onEmergencyStop: () => {},
       });
       const tokenPath = join(home, ".automaton", "dashboard-token");
@@ -50,6 +53,13 @@ describe("authenticated dashboard business workflow", () => {
       const unauthenticated = await fetch(`${base}/api/experiments`);
       expect(unauthenticated.status).toBe(401);
       const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+      expect((await fetch(`${base}/api/research`)).status).toBe(401);
+      const researchInitial = await fetch(`${base}/api/research`, { headers });
+      expect(await researchInitial.json()).toMatchObject({ enabled: false, allowedHosts: [], factualVerificationPerformed: false });
+      const invalidResearchConfig = await fetch(`${base}/api/config/research`, { method: "POST", headers, body: JSON.stringify({ enabled: true, allowedHosts: ["*.example.com"] }) });
+      expect(invalidResearchConfig.status).toBe(400);
+      const enabledResearch = await fetch(`${base}/api/config/research`, { method: "POST", headers, body: JSON.stringify({ enabled: true, allowedHosts: ["www.gov.uk", "www.gov.uk"] }) });
+      expect(await enabledResearch.json()).toMatchObject({ enabled: true, allowedHosts: ["www.gov.uk"], restartRequired: false, factsVerified: false });
       db.raw.prepare("INSERT INTO goals (id, title, description, status, created_at) VALUES ('worker-goal', 'Worker goal', 'Review workers', 'active', datetime('now'))").run();
       db.raw.prepare(`INSERT INTO task_graph (id, goal_id, title, description, status, assigned_to, agent_role, created_at)
         VALUES ('worker-task', 'worker-goal', 'Inspect local worker history', 'Read persisted worker status', 'completed', 'local://worker-1', 'researcher', datetime('now'))`).run();

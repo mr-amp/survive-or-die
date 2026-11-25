@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 22;
+export const SCHEMA_VERSION = 24;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -926,6 +926,35 @@ export const MIGRATION_V22 = `
     CHECK(position IN ('supports','contradicts','context'));
   ALTER TABLE business_opportunity_evidence ADD COLUMN date_basis TEXT NOT NULL DEFAULT 'unknown'
     CHECK(date_basis IN ('publication','accessed','unknown'));
+`;
+
+export const MIGRATION_V23 = `
+  -- Schema version: 23. Read-only public research retrieval; retrieval never implies factual verification.
+  CREATE TABLE business_research_retrievals (
+    id TEXT PRIMARY KEY,
+    opportunity_id TEXT REFERENCES business_opportunities(id) ON DELETE SET NULL,
+    requested_url TEXT NOT NULL,
+    final_url TEXT,
+    host TEXT NOT NULL,
+    research_area TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('pending','retrieved','failed','blocked')),
+    http_status INTEGER,
+    content_type TEXT,
+    page_title TEXT,
+    excerpt TEXT NOT NULL DEFAULT '',
+    content_sha256 TEXT,
+    error_code TEXT,
+    retrieved_at TEXT NOT NULL,
+    requested_by TEXT NOT NULL
+  );
+  CREATE INDEX idx_business_research_host_time ON business_research_retrievals(host, retrieved_at DESC);
+  CREATE INDEX idx_business_research_opportunity ON business_research_retrievals(opportunity_id, retrieved_at DESC);
+`;
+
+export const MIGRATION_V24 = `
+  -- Schema version: 24. Evidence may cite a successful retrieval record without upgrading factual verification.
+  ALTER TABLE business_opportunity_evidence ADD COLUMN retrieval_id TEXT REFERENCES business_research_retrievals(id) ON DELETE SET NULL;
+  CREATE INDEX idx_business_evidence_retrieval ON business_opportunity_evidence(retrieval_id) WHERE retrieval_id IS NOT NULL;
 `;
 
 export const MIGRATION_V10 = `

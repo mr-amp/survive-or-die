@@ -135,8 +135,12 @@ describe("persistent business opportunity pipeline", () => {
       confidence: 0.1, risks: "Demand unknown",
     }, { db, identity: { address: "local-agent" } } as unknown as ToolContext);
     expect(result).toContain("unverified hypotheses");
+    expect(result).toContain("Persistent research goal");
     const opportunities = listBusinessOpportunities(db.raw);
     expect(opportunities).toHaveLength(1);
+    expect(opportunities[0].status).toBe("researching");
+    expect(opportunities[0].validationGoalId).toBeTruthy();
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph WHERE goal_id = ?").get(opportunities[0].validationGoalId)).toEqual({ count: 3 });
     const evidenceTool = createBuiltinTools("local-sandbox").find((candidate) => candidate.name === "record_business_evidence");
     const recorded = await evidenceTool!.execute({
       opportunity_id: opportunities[0].id, title: "Official source", source_url: "https://example.test/official",
@@ -251,6 +255,19 @@ describe("persistent business opportunity pipeline", () => {
     expect(tasks[2].status).toBe("blocked");
     expect(tasks[2].description.toLowerCase()).toContain("do not spend or make commitments");
     expect(listBusinessOpportunities(db.raw)[0].validationGoalId).toBe(plan?.goalId);
+  });
+
+  it("automatically bounds ongoing business research to three active persistent goals", () => {
+    const db = makeDb();
+    const opportunities = Array.from({ length: 4 }, (_, index) => createBusinessOpportunity(db.raw, {
+      title: `Bounded research ${index}`, customerSegment: "Local", customerProblem: `Problem ${index}`,
+      valueProposition: "Value", evidenceSummary: "Hypothesis", forecastDays: 30, confidence: 0.1, risks: "Unknown",
+    }, "agent"));
+    const firstThree = opportunities.slice(0, 3).map((item) => createOpportunityValidationGoal(db.raw, item.id));
+    expect(firstThree.every((result) => result?.goalId)).toBe(true);
+    expect(createOpportunityValidationGoal(db.raw, opportunities[0].id)).toMatchObject({ goalId: firstThree[0]?.goalId, existing: true });
+    expect(createOpportunityValidationGoal(db.raw, opportunities[3].id)).toMatchObject({ goalId: null, existing: false, capacityReached: true });
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM task_graph").get()).toEqual({ count: 9 });
   });
 
   it("persists non-executing experiment proposals and feeds only owner-reported lessons back to the agent", async () => {
