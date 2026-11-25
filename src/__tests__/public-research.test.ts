@@ -46,7 +46,7 @@ describe("owner-gated public business research", () => {
     expect(result).toMatchObject({ status: "retrieved", title: "Market & pricing", contentType: "text/html", host: "research.example", httpStatus: 200 });
     expect(result.excerpt).toContain("Observed prices");
     expect(result.excerpt).not.toMatch(/Ignore all safeguards|secret frame/);
-    expect(request).toHaveBeenCalledWith(expect.any(URL), "93.184.216.34", expect.any(Number), 262144);
+    expect(request).toHaveBeenCalledWith(expect.any(URL), "93.184.216.34", expect.any(Number), 262144, expect.any(AbortSignal));
     expect(db.raw.prepare("SELECT status,opportunity_id,content_sha256,requested_by FROM business_research_retrievals").get()).toMatchObject({ status: "retrieved", opportunity_id: opportunity.id, content_sha256: result.contentSha256, requested_by: "local-agent" });
     expect(result.contentSha256).toMatch(/^[a-f0-9]{64}$/);
     const savedClaim = recordBusinessEvidence(db.raw, {
@@ -98,6 +98,23 @@ describe("owner-gated public business research", () => {
     expect(results.filter((result) => result.status === "retrieved")).toHaveLength(5);
     expect(results.filter((result) => result.errorCode === "rate_limited")).toHaveLength(3);
     expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_research_retrievals WHERE status='pending'").get()).toEqual({ count: 0 });
+  });
+
+  it("aborts a slow request at the absolute overall deadline", async () => {
+    const db = makeDb();
+    const request = vi.fn((_url: URL, _address: string, _timeout: number, _maxBytes: number, signal?: AbortSignal) => new Promise<ResearchResponse>((_resolve, reject) => {
+      signal?.addEventListener("abort", () => reject(new Error("request_timeout")), { once: true });
+    }));
+    const deps: ResearchDependencies = { resolve: async () => ["93.184.216.34"], request, now: () => new Date("2026-11-25T12:00:00.000Z") };
+    vi.useFakeTimers();
+    try {
+      const pending = retrievePublicResearch(db.raw, { url: "https://slow.example/report", researchArea: "demand", requestedBy: "agent" }, { publicResearchEnabled: true, publicResearchAllowedHosts: ["slow.example"] }, deps);
+      await vi.advanceTimersByTimeAsync(12_001);
+      expect(await pending).toMatchObject({ status: "failed", errorCode: "request_timeout" });
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("recovers durable in-progress retrieval records as failures after process restart", () => {

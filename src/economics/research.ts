@@ -21,7 +21,7 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 export interface ResearchResponse { status: number; headers: Record<string, string | undefined>; body: Uint8Array; }
 export interface ResearchDependencies {
   resolve(host: string): Promise<string[]>;
-  request(url: URL, pinnedAddress: string, timeoutMs: number, maxBytes: number): Promise<ResearchResponse>;
+  request(url: URL, pinnedAddress: string, timeoutMs: number, maxBytes: number, signal?: AbortSignal): Promise<ResearchResponse>;
   now?: () => Date;
 }
 export interface ResearchResult {
@@ -98,7 +98,7 @@ export function extractPublicText(input: string, maxChars = RESEARCH_LIMITS.maxE
 
 const productionDependencies: ResearchDependencies = {
   resolve: async (host) => (await lookup(host, { all: true, verbatim: true })).map((item) => item.address),
-  request: (url, pinnedAddress, timeoutMs, maxBytes) => new Promise((resolve, reject) => {
+  request: (url, pinnedAddress, timeoutMs, maxBytes, signal) => new Promise((resolve, reject) => {
     const family = isIP(pinnedAddress);
     const req = https.request(url, {
       method: "GET", timeout: timeoutMs, servername: url.hostname,
@@ -112,6 +112,10 @@ const productionDependencies: ResearchDependencies = {
       }, body: Buffer.concat(chunks) }));
       response.on("error", reject);
     });
+    const abortRequest = () => req.destroy(new Error("request_timeout"));
+    if (signal?.aborted) abortRequest();
+    else signal?.addEventListener("abort", abortRequest, { once: true });
+    req.once("close", () => signal?.removeEventListener("abort", abortRequest));
     req.on("timeout", () => req.destroy(new Error("request_timeout")));
     req.on("error", reject);
     req.end();
@@ -173,7 +177,16 @@ export async function retrievePublicResearch(
       if (remainingMs <= 0) throw new Error("request_timeout");
       const addresses = await withTimeout(dependencies.resolve(requestUrl.hostname), remainingMs);
       if (!addresses.length || addresses.some((address) => !isPublicAddress(address))) throw new Error("unsafe_dns_result");
-      const response = await dependencies.request(requestUrl, addresses[0], Math.min(RESEARCH_LIMITS.timeoutMs, deadline - Date.now()), RESEARCH_LIMITS.maxBytes);
+      const requestTimeLeft = deadline - Date.now();
+      if (requestTimeLeft <= 0) throw new Error("request_timeout");
+      const controller = new AbortController();
+      const deadlineTimer = setTimeout(() => controller.abort(), requestTimeLeft);
+      let response: ResearchResponse;
+      try {
+        response = await dependencies.request(requestUrl, addresses[0], Math.min(RESEARCH_LIMITS.timeoutMs, requestTimeLeft), RESEARCH_LIMITS.maxBytes, controller.signal);
+      } finally {
+        clearTimeout(deadlineTimer);
+      }
       if ([301, 302, 303, 307, 308].includes(response.status)) {
         const location = response.headers.location;
         if (!location || redirects === RESEARCH_LIMITS.maxRedirects) throw new Error("redirect_limit");
