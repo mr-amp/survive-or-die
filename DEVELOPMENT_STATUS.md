@@ -117,4 +117,4 @@ The automatic audit fix was not used. It proposed broad overrides including majo
 
 ## Checkpoint
 
-Development base for Mission 10: `78e8ba4da7d3b7c835da330d717c4e75a8cb7468`. Release-candidate commit: pending publication. `main` remains untouched. See `docs/MISSION10_COMPLETION_REGISTER.md` for the scoped register, formulas and acceptance limits.
+Development base for Mission 10: `78e8ba4da7d3b7c835da330d717c4e75a8cb7468`. Mission 10 implementation commit: `76b0f2737a26975848c3dc02fd6070a40a369fe8`. This is a pre-release development checkpoint, not a Windows release or production release. `main` remains untouched. See `docs/MISSION10_COMPLETION_REGISTER.md` for the scoped register, formulas and acceptance limits.

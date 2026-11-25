@@ -1,6 +1,6 @@
 # Mission 10 software completion register
 
-Assessment date: 25 November 2026. Branch base: `78e8ba4da7d3b7c835da330d717c4e75a8cb7468`; the release candidate commit is recorded in `DEVELOPMENT_STATUS.md` after publication.
+Assessment date: 25 November 2026. Branch base: `78e8ba4da7d3b7c835da330d717c4e75a8cb7468`. Mission 10 implementation commit: `76b0f2737a26975848c3dc02fd6070a40a369fe8`.
 
 This is a scoped readiness register for the stated local-first Automaton recreation, not a claim that every upstream feature or real-world business outcome is complete. Each criterion has equal weight within its metric. `Implemented and verified` = 1, `partial` = 0.5, `missing` or `not verified` = 0. Hardware-only checks are reported separately. Verification means the named code/tests ran in the development environment; it does not imply Windows or laptop acceptance.
 
