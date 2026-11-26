@@ -2,6 +2,15 @@
 
 Checkpoint for `work/local-first-windows`. This file records repository evidence; it does not certify a Windows installation or continuous operation.
 
+## Mission 16 — Windows verification preparation (26 November 2026)
+
+- Verified the live branch at `e3c663198a82d95194e07a90b042d04ffe3b9403`, based on the Mission 15 checkpoint. The public repository's standard GitHub-hosted Windows runners are currently documented as free for public repositories; the GitHub API currently reports zero workflow runs and no commit status checks for the new checkpoint. The workflow is therefore prepared but has not executed.
+- Expanded `.github/workflows/ci.yml` so its Windows job installs Node 24.22.3 and pinned pnpm 10.28.1, exercises `install.ps1` using a disposable synthetic owner profile and local fake Ollama listing, typechecks/builds, parses every PowerShell script, runs the complete bounded offline suite, guarded security/financial filters and both dependency audits. The job has a 60-minute bound and repository-level `contents: read` permission. This hosted workflow does not certify the HP laptop.
+- `install.ps1` now checks the exact pnpm version declared by `package.json` before installing. The Windows guide specifies the repository branch, pinned versions, cloning and a stop path.
+- On Node 24.22.3 and pnpm 10.28.1 in the available Linux development environment: typecheck and production build passed; all 13 bounded offline groups passed across 76 files (1,702 tests, 0 failures/timeouts); security passed 124 tests; financial passed 38 tests; full and production dependency audits found no known vulnerabilities. The workflow YAML parsed and `git diff --check` passed. These are Linux results; PowerShell, Actions, and Windows install/recovery were not executed.
+- No requirement moved from partial/missing to complete because the Windows workflow has not run and the target laptop is unavailable. Existing measures remain: software implementation 76.1%, Automaton capability 72.7%, integrated workflows 75%, remote engineering verification 91.7%, Windows installation software readiness 70%. Candidate execution and activation remain disabled.
+- Android owner step required for hosted Windows execution: open the repository Actions page, enable the CI workflow if GitHub presents that control, then use **Run workflow** and select `work/local-first-windows`. Standard GitHub-hosted Windows runs for this public repository are free under GitHub's published runner policy; do not switch to a larger runner. Check the run reaches completion before treating Windows verification as restored.
+
 ## Mission 15 — repository recovery and verification (26 November 2026)
 
 - Recovered the complete source tree for remote commit `11bb12da992411f3241adef7afeddda6362061ae` through the authorized GitHub tree/blob API. All 249 blobs were materialized; `git write-tree` reproduced the remote tree SHA `7a56a78ddb833a28381436a57f550f36b6a59c9b`, and the reconstructed shallow commit object matched the remote HEAD. The local worktree was clean before this status update.
