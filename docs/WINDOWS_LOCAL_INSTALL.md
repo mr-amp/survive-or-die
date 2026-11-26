@@ -1,13 +1,20 @@
 # Windows local installation
 
-These steps target Windows 10 or later and Node.js 20+. The original agent is intended for an HP ProBook 650 G4, but that laptop and its available GPU/RAM have not been tested here. Use the 16GB profile until the machine is confirmed upgraded.
+These steps target Windows 10 or later, Node.js 24.22.3, and the repository-pinned pnpm 10.28.1. The original agent is intended for an HP ProBook 650 G4, but that laptop and its available GPU/RAM have not been tested here. Use the 16GB profile until the machine is confirmed upgraded.
 
 ## 1. Install prerequisites
 
-1. Install Node.js 20 or newer from [nodejs.org](https://nodejs.org/).
+1. Install Node.js 24.22.3 from [nodejs.org](https://nodejs.org/).
 2. Install Ollama from [ollama.com/download/windows](https://ollama.com/download/windows), then start Ollama from the Windows Start menu.
-3. Open PowerShell in the repository folder. Run `corepack enable`; if Windows requests elevation, reopen PowerShell as administrator for that command only.
-4. Confirm `node --version`, `pnpm --version`, and `ollama --version` work.
+3. Install Git for Windows. In PowerShell, clone this development branch and enter the project folder:
+
+```powershell
+git clone --branch work/local-first-windows https://github.com/mr-amp/survive-or-die.git
+Set-Location .\survive-or-die
+```
+
+4. Run `corepack enable`; if Windows requests elevation, reopen PowerShell as administrator for that command only.
+5. From the repository folder, confirm `node --version`, `pnpm --version`, and `ollama --version` work. The first two should report `v24.22.3` and `10.28.1`; Corepack selects the pinned pnpm version from `package.json`. The installer stops if a different pnpm version is active.
 
 ## 2. Install the model and application
 
@@ -24,6 +31,8 @@ The model download needs several gigabytes of free disk space and may take time.
 ## 3. Start and stop
 
 Start manually with `scripts\windows\run-agent.ps1`. Stop with **Ctrl+C**. The SQLite database, wallet, configuration, memory, and logs stay under `%USERPROFILE%\.automaton`. Back up this directory before reinstalling Windows or moving the agent.
+
+For an emergency stop, press **Ctrl+C** in the agent's PowerShell window. If it was started by Task Scheduler, run `Stop-ScheduledTask -TaskName SurviveOrDieAgent` in PowerShell. Do not end unrelated `node.exe` processes; the runtime does not have permission to override the owner's stop request.
 
 If startup reports Ollama is unavailable, open Ollama and check `ollama list`. If the configured model is missing, run `ollama pull llama3.1:8b`. In local-only mode the runtime refuses to start without the local server and selected model; it does not fall back to Conway or paid inference.
 

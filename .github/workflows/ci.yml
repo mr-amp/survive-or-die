@@ -45,11 +45,43 @@ jobs:
           src/__tests__/financial.test.ts
         timeout-minutes: 10
 
-  windows-scripts:
-    name: Validate Windows PowerShell scripts
+  windows-validation:
+    name: Windows install, build, recovery scripts and offline tests
     runs-on: windows-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.22.3
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Exercise installer with disposable owner profile
+        shell: pwsh
+        run: |
+          $ownerProfile = Join-Path $env:RUNNER_TEMP 'sod-synthetic-owner'
+          $ollamaStub = Join-Path $env:RUNNER_TEMP 'sod-ollama-stub'
+          New-Item -ItemType Directory -Force -Path (Join-Path $ownerProfile '.automaton'), $ollamaStub | Out-Null
+          $env:USERPROFILE = $ownerProfile
+          Set-Content -LiteralPath (Join-Path $ownerProfile '.automaton/automaton.json') -Value '{"localOnly":true,"maxChildren":9,"maxTokensPerTurn":9000}' -Encoding utf8
+          @('@echo off', 'if "%1"=="list" (', '  echo NAME ID SIZE MODIFIED', '  echo llama3.1:8b synthetic 0B now', '  exit /b 0', ')', 'exit /b 1') | Set-Content -LiteralPath (Join-Path $ollamaStub 'ollama.cmd') -Encoding ascii
+          $env:PATH = "$ollamaStub;$env:PATH"
+          & .\scripts\windows\install.ps1 -Profile 16gb -Model llama3.1:8b
+          if ($LASTEXITCODE -ne 0) { throw "Installer returned exit code $LASTEXITCODE." }
+          $configPath = Join-Path $ownerProfile '.automaton/automaton.json'
+          $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+          if ($config.localOnly -ne $true -or $config.localProfile -ne '16gb' -or $config.maxChildren -ne 1 -or $config.maxTokensPerTurn -ne 2048) { throw 'Installer did not apply the expected local 16GB profile.' }
+          if (-not (Get-ChildItem -LiteralPath (Split-Path $configPath) -Filter 'automaton.json.bak.*' -File)) { throw 'Installer did not preserve a backup of the previous configuration.' }
+          Write-Host 'Synthetic local-only configuration and backup verified.'
+      - name: TypeScript check
+        run: pnpm run typecheck
+      - name: Production build
+        run: pnpm run build
       - name: Parse all installer and recovery scripts
         shell: pwsh
         run: |
@@ -65,6 +97,21 @@ jobs:
             }
             Write-Host "Parsed $($script.Name)"
           }
+      - name: Run complete bounded offline suite
+        run: pnpm run test:offline:groups -- --group-size=6 --timeout-ms=180000 --results="${{ runner.temp }}\sod-offline-tests.json"
+        timeout-minutes: 35
+      - name: Run guarded security tests
+        run: pnpm run test:security
+        timeout-minutes: 10
+      - name: Run guarded financial tests
+        run: pnpm run test:financial
+        timeout-minutes: 10
+      - name: Audit all dependencies
+        run: pnpm audit --audit-level=low
+        timeout-minutes: 5
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=low
+        timeout-minutes: 5
 
   dependency-audit:
     name: Dependency vulnerability audit

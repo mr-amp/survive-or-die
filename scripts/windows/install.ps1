@@ -50,6 +50,16 @@ if ($modelList -notmatch $modelPattern) {
 
 Push-Location $ProjectRoot
 try {
+  $packageManager = [string](Get-Content -Raw -Path (Join-Path $ProjectRoot "package.json") | ConvertFrom-Json).packageManager
+  if ($packageManager -notmatch '^pnpm@(?<version>\d+\.\d+\.\d+)$') {
+    throw "package.json must declare an exact pinned pnpm version; found '$packageManager'."
+  }
+  $expectedPnpmVersion = $Matches.version
+  $actualPnpmVersion = (& pnpm --version | Out-String).Trim()
+  if ($LASTEXITCODE -ne 0 -or $actualPnpmVersion -ne $expectedPnpmVersion) {
+    throw "This repository requires pnpm $expectedPnpmVersion (found '$actualPnpmVersion'). From the repository folder run 'corepack enable', then verify 'pnpm --version' before retrying."
+  }
+
   & pnpm install --frozen-lockfile
   if ($LASTEXITCODE -ne 0) { throw "Dependency installation failed." }
   & pnpm build
