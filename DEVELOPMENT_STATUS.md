@@ -2,6 +2,15 @@
 
 Checkpoint for `work/local-first-windows`. This file records repository evidence; it does not certify a Windows installation or continuous operation.
 
+## Mission 15 — repository recovery and verification (26 November 2026)
+
+- Recovered the complete source tree for remote commit `11bb12da992411f3241adef7afeddda6362061ae` through the authorized GitHub tree/blob API. All 249 blobs were materialized; `git write-tree` reproduced the remote tree SHA `7a56a78ddb833a28381436a57f550f36b6a59c9b`, and the reconstructed shallow commit object matched the remote HEAD. The local worktree was clean before this status update.
+- On Node 24.22.3 and the repository-pinned pnpm 10.28.1, `pnpm install --frozen-lockfile` completed for all 149 locked packages. `pnpm run typecheck` and `pnpm run build` passed.
+- Corrected Mission 13 replay, business-claim/evidence, dashboard, public-research, database-transaction/search and backup-crypto checks passed: 25 tests across 4 files in the final focused run. An earlier five-file focused run passed 46 tests.
+- The bounded offline suite passed all 13 groups across 76 test files: 1,702 passed, 0 failed, 0 timed out. The guarded security suite passed 124 tests; the guarded financial suite passed 38. Full and production dependency audits at low severity found no known vulnerabilities.
+- Source-tree integrity was verified against the exact remote tree and commit. The Windows PowerShell parser and GitHub Actions runner were not available or triggered; no Windows or laptop acceptance is claimed. Remote engineering verification is therefore 11/12 (91.7%), with only the Windows parser/Actions check outstanding.
+- No application source or dependency files changed in this mission. Remaining register rows are still governed by their existing hardware, Windows, isolation, device or real-world validation limits.
+
 ## Mission 13 — claim-specific evidence corroboration (26 November 2026)
 
 - Schema v26 adds persistent, claim-specific evidence reviews and an event history. Reviews bind a normalized claim and research area to exact evidence IDs and a SHA-256 snapshot; selected records must belong to the same opportunity and area.
