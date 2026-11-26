@@ -16,6 +16,9 @@ import {
   transitionBusinessOpportunity,
   reviewBusinessExperiment,
   recordBusinessEvidence,
+  assessBusinessClaim,
+  decideBusinessClaimReview,
+  listBusinessClaimReviews,
 } from "../economics/opportunities.js";
 
 describe("persistent business opportunity pipeline", () => {
@@ -215,6 +218,60 @@ describe("persistent business opportunity pipeline", () => {
     });
     expect(assessment.notice).toContain("Source reliability");
     expect(listBusinessOpportunities(db.raw)[0].evidenceItems.every((item) => item.verificationStatus === "unverified")).toBe(true);
+  });
+
+  it("persists claim-specific support, counterevidence, conservative source-independence and one-time owner review", () => {
+    const db = makeDb();
+    const opportunity = createBusinessOpportunity(db.raw, {
+      title: "Corroboration", customerSegment: "Small firms", customerProblem: "Manual work",
+      valueProposition: "Automation", evidenceSummary: "Hypothesis only", forecastDays: 30,
+      confidence: 0.1, risks: "Unverified",
+    }, "local-agent");
+    const common = { opportunityId: opportunity.id, title: "Report", claim: "The target segment has this problem", sourceDate: "2026-11-20", sourceType: "research" as const, claimArea: "demand" as const, dateBasis: "publication" as const, limitations: "Not independently checked" };
+    const first = recordBusinessEvidence(db.raw, { ...common, sourceUrl: "https://publisher.example.test/report", position: "supports" }, "local-worker")!;
+    const sameHost = recordBusinessEvidence(db.raw, { ...common, title: "Copied page", sourceUrl: "https://www.publisher.example.test/copy", position: "supports" }, "local-worker")!;
+    const syndicated = recordBusinessEvidence(db.raw, { ...common, sourceUrl: "https://mirror.example.test/copy", position: "supports" }, "local-worker")!;
+    const separate = recordBusinessEvidence(db.raw, { ...common, title: "Different survey", claim: "A separate survey describes the problem", sourceUrl: "https://survey.example.test/data", position: "supports" }, "local-worker")!;
+    const counter = recordBusinessEvidence(db.raw, { ...common, title: "Counter report", claim: "No demand was identified in the sampled group", sourceUrl: "https://counter.example.test/report", position: "contradicts" }, "local-worker")!;
+    const input = {
+      opportunityId: opportunity.id,
+      claim: "Many local firms actively seek this product",
+      claimArea: "demand" as const,
+      supportingEvidenceIds: [first.id, sameHost.id, syndicated.id, separate.id],
+      contradictingEvidenceIds: [counter.id],
+    };
+    const review = assessBusinessClaim(db.raw, input, "local-agent", new Date("2026-11-25T12:00:00Z"))!;
+    expect(review.assessment).toMatchObject({ classification: "conflicting_evidence", confidence: "contested", independenceCandidates: 2 });
+    expect(review.assessment.sourceAssessment.map((source) => source.independence)).toEqual([
+      "first_source", "same_host", "likely_syndicated", "distinct_host_unverified", "distinct_host_unverified",
+    ]);
+    expect(review.assessment.sources.every((source) => source.verificationStatus === "unverified")).toBe(true);
+    expect(assessBusinessClaim(db.raw, input, "local-agent")?.id).toBe(review.id);
+    expect(listBusinessClaimReviews(db.raw)).toHaveLength(1);
+    const decided = decideBusinessClaimReview(db.raw, review.id, "inconclusive", "Sources disagree and publisher independence has not been checked.");
+    expect(decided).toMatchObject({ ownerDecision: "inconclusive", reviewedBy: "owner-dashboard" });
+    expect(decideBusinessClaimReview(db.raw, review.id, "inconclusive", "Replay attempt")).toBeNull();
+    expect(() => decideBusinessClaimReview(db.raw, review.id, "supports", "Agent self-review", "local-agent")).toThrow("Only the authenticated owner");
+    expect(db.raw.prepare("SELECT COUNT(*) AS count FROM business_claim_review_events WHERE review_id=?").get(review.id)).toEqual({ count: 2 });
+  });
+
+  it("resets owner review when the evidence snapshot changes and rejects evidence from another opportunity", () => {
+    const db = makeDb();
+    const makeOpportunity = (title: string) => createBusinessOpportunity(db.raw, {
+      title, customerSegment: "Owners", customerProblem: "Need", valueProposition: "Help", evidenceSummary: "Unverified", forecastDays: 20, confidence: 0.1, risks: "Unknown",
+    }, "agent");
+    const one = makeOpportunity("One");
+    const two = makeOpportunity("Two");
+    const base = { title: "One source", sourceUrl: "https://source.example.test/a", claim: "A claim", sourceDate: "2026-11-20", sourceType: "research" as const, claimArea: "problem" as const, position: "supports" as const, dateBasis: "publication" as const, limitations: "Unverified" };
+    const evidence = recordBusinessEvidence(db.raw, { ...base, opportunityId: one.id }, "agent")!;
+    expect(() => assessBusinessClaim(db.raw, { opportunityId: two.id, claim: "A claim", claimArea: "problem", supportingEvidenceIds: [evidence.id], contradictingEvidenceIds: [] }, "agent")).toThrow("belong to this opportunity");
+    const initial = assessBusinessClaim(db.raw, { opportunityId: one.id, claim: "A claim", claimArea: "problem", supportingEvidenceIds: [evidence.id], contradictingEvidenceIds: [] }, "agent")!;
+    decideBusinessClaimReview(db.raw, initial.id, "supports", "Checked source scope and date.", "owner-dashboard", true);
+    const additional = recordBusinessEvidence(db.raw, { ...base, title: "Second source", sourceUrl: "https://other.example.test/b", claim: "Another supporting observation", opportunityId: one.id }, "agent")!;
+    const revised = assessBusinessClaim(db.raw, { opportunityId: one.id, claim: "A claim", claimArea: "problem", supportingEvidenceIds: [evidence.id, additional.id], contradictingEvidenceIds: [] }, "agent")!;
+    expect(revised.id).toBe(initial.id);
+    expect(revised.ownerDecision).toBe("pending");
+    expect(revised.reviewedAt).toBeNull();
   });
 
   it("keeps the actual balance complete while limiting the displayed ledger history", () => {

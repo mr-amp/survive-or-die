@@ -2,6 +2,13 @@
 
 Checkpoint for `work/local-first-windows`. This file records repository evidence; it does not certify a Windows installation or continuous operation.
 
+## Mission 13 — claim-specific evidence corroboration (26 November 2026)
+
+- Schema v26 adds persistent, claim-specific evidence reviews and an event history. Reviews bind a normalized claim and research area to exact evidence IDs and a SHA-256 snapshot; selected records must belong to the same opportunity and area.
+- The comparison reports support and contradiction separately, checks same-host copies, identical retrieved-content hashes and exact repeated citations, records freshness, and treats different hosts only as unverified independence candidates. Reliability and truth remain unverified; the confidence label is a conservative evidence-volume category, not a probability.
+- The agent has an `assess_business_claim` tool, and business research/feasibility tasks now direct the agent to create and use these records. The authenticated dashboard exposes the citations and owner review queue. Support/contradiction decisions require an explicit owner report that sources were individually checked; the decision is single-use per evidence snapshot, audited, and resets if evidence changes. Owner review never upgrades raw source records or authorizes financial/external actions.
+- Implementation checks: pinned Node 24.22.3 / pnpm 10.28.1 typecheck and production build passed; the business unit suite passed. The combined focused suite recorded 13 passed and 1 failed because the dashboard replay test omitted the newly required owner attestation. Its test request was corrected, but it could not be rerun after the pinned offline install found the `bindings@1.5.0` tarball missing from the local cache and removed the previous `node_modules` links. Inline dashboard JavaScript syntax and `git diff --check` passed. The corrected API replay assertion and complete offline suite remain to be rerun; no new result is claimed.
+
 ## Implemented
 
 - Local Ollama mode, local model selection and 16GB/32GB profiles.

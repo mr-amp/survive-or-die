@@ -3440,6 +3440,35 @@ Model: ${ctx.inference.getDefaultModel()}
       },
     },
     {
+      name: "assess_business_claim",
+      description: "Persist a claim-specific comparison of selected unverified evidence records. Detects same-host and likely duplicate material and classifies distinct hosts only as candidates; it does not verify publishers or factual truth. Use after collecting sources, include counterevidence, and leave the decision for the owner dashboard.",
+      category: "economics",
+      riskLevel: "safe",
+      parameters: {
+        type: "object",
+        properties: {
+          opportunity_id: { type: "string" },
+          claim: { type: "string", description: "One falsifiable factual claim being evaluated" },
+          claim_area: { type: "string", enum: ["problem", "demand", "competitors", "pricing", "feasibility", "regulatory", "other"] },
+          supporting_evidence_ids: { type: "array", items: { type: "string" }, description: "Existing evidence IDs that may support the claim" },
+          contradicting_evidence_ids: { type: "array", items: { type: "string" }, description: "Existing evidence IDs that may contradict the claim" },
+        },
+        required: ["opportunity_id", "claim", "claim_area", "supporting_evidence_ids", "contradicting_evidence_ids"],
+      },
+      execute: async (args, ctx) => {
+        const { assessBusinessClaim } = await import("../economics/opportunities.js");
+        const result = assessBusinessClaim(ctx.db.raw, {
+          opportunityId: args.opportunity_id as string,
+          claim: args.claim as string,
+          claimArea: args.claim_area as "problem" | "demand" | "competitors" | "pricing" | "feasibility" | "regulatory" | "other",
+          supportingEvidenceIds: args.supporting_evidence_ids as string[],
+          contradictingEvidenceIds: args.contradicting_evidence_ids as string[],
+        }, ctx.identity.address || "local-agent");
+        if (!result) return "Opportunity not found; no claim assessment was saved.";
+        return JSON.stringify({ ...result, factualTruthVerified: false, ownerReviewRequired: true });
+      },
+    },
+    {
       name: "assess_business_evidence",
       description: "Summarize coverage gaps, submitter-marked contradictions, distinct recorded domains and stale publication dates for an opportunity. This is a deterministic coverage checklist only; it does not verify sources, truth, demand, reliability or profitability. Use it before preparing a business proposal.",
       category: "economics",

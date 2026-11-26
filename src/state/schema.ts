@@ -5,7 +5,7 @@
  * The database IS the automaton's memory.
  */
 
-export const SCHEMA_VERSION = 25;
+export const SCHEMA_VERSION = 26;
 
 export const CREATE_TABLES = `
   -- Schema version tracking
@@ -999,6 +999,43 @@ export const MIGRATION_V25 = `
     created_at TEXT NOT NULL
   );
   CREATE INDEX idx_business_deliverable_events ON business_deliverable_events(deliverable_id, created_at DESC);
+`;
+
+export const MIGRATION_V26 = `
+  -- Schema version: 26. Claim-specific evidence assessments are persisted separately
+  -- from source assertions. Owner assessments never change raw evidence status.
+  CREATE TABLE business_claim_reviews (
+    id TEXT PRIMARY KEY,
+    opportunity_id TEXT NOT NULL REFERENCES business_opportunities(id) ON DELETE CASCADE,
+    claim_key TEXT NOT NULL,
+    claim_text TEXT NOT NULL,
+    claim_area TEXT NOT NULL CHECK(claim_area IN ('problem','demand','competitors','pricing','feasibility','regulatory','other')),
+    supporting_evidence_ids_json TEXT NOT NULL,
+    contradicting_evidence_ids_json TEXT NOT NULL,
+    evidence_snapshot_sha256 TEXT NOT NULL CHECK(length(evidence_snapshot_sha256) = 64),
+    assessment_json TEXT NOT NULL,
+    owner_decision TEXT NOT NULL DEFAULT 'pending' CHECK(owner_decision IN ('pending','supports','contradicts','inconclusive')),
+    owner_note TEXT,
+    owner_sources_independently_checked INTEGER NOT NULL DEFAULT 0 CHECK(owner_sources_independently_checked IN (0,1)),
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    reviewed_by TEXT,
+    reviewed_at TEXT,
+    UNIQUE(opportunity_id, claim_key)
+  );
+  CREATE INDEX idx_business_claim_reviews_opportunity ON business_claim_reviews(opportunity_id, updated_at DESC);
+  CREATE INDEX idx_business_claim_reviews_pending ON business_claim_reviews(owner_decision, updated_at DESC);
+  CREATE TABLE business_claim_review_events (
+    id TEXT PRIMARY KEY,
+    review_id TEXT NOT NULL REFERENCES business_claim_reviews(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL CHECK(event_type IN ('assessed','owner_decision')),
+    actor_kind TEXT NOT NULL CHECK(actor_kind IN ('agent','owner','system')),
+    actor_id TEXT NOT NULL,
+    details_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX idx_business_claim_review_events ON business_claim_review_events(review_id, created_at DESC);
 `;
 
 export const MIGRATION_V10 = `

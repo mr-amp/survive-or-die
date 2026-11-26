@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createDatabase } from "../state/database.js";
-import { createBusinessOpportunity, proposeBusinessExperiment, recordBusinessEvidence, reviewBusinessExperiment, transitionBusinessOpportunity } from "../economics/opportunities.js";
+import { assessBusinessClaim, createBusinessOpportunity, proposeBusinessExperiment, recordBusinessEvidence, reviewBusinessExperiment, transitionBusinessOpportunity } from "../economics/opportunities.js";
 import { createTestConfig } from "./mocks.js";
 import { createSelfImprovementProposal } from "../self-mod/proposals.js";
 import { saveBusinessDeliverable } from "../economics/deliverables.js";
@@ -40,11 +40,15 @@ describe("authenticated dashboard business workflow", () => {
         valueProposition: "Better tracking", evidenceSummary: "Hypothesis", forecastDays: 30,
         confidence: 0.1, risks: "Unknown",
       }, "agent");
-      recordBusinessEvidence(db.raw, {
+      const evidence = recordBusinessEvidence(db.raw, {
         opportunityId: opportunity.id, title: "Public source", sourceUrl: "https://example.test/source",
         claim: "A dated source claim", sourceDate: "2026-11-10", sourceType: "official",
         claimArea: "demand", position: "supports", dateBasis: "publication",
         limitations: "Not independently checked",
+      }, "local-agent");
+      const claimReview = assessBusinessClaim(db.raw, {
+        opportunityId: opportunity.id, claim: "The stated customer problem exists", claimArea: "demand",
+        supportingEvidenceIds: [evidence!.id], contradictingEvidenceIds: [],
       }, "local-agent");
       transitionBusinessOpportunity(db.raw, opportunity.id, "shortlisted");
       const experiment = proposeBusinessExperiment(db.raw, {
@@ -59,6 +63,22 @@ describe("authenticated dashboard business workflow", () => {
       expect(unauthenticated.status).toBe(401);
       const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
       expect((await fetch(`${base}/api/research`)).status).toBe(401);
+      expect((await fetch(`${base}/api/claim-reviews`)).status).toBe(401);
+      const claimReviews = await fetch(`${base}/api/claim-reviews`, { headers });
+      expect(await claimReviews.json()).toMatchObject({ factualTruthVerified: false, items: [{ id: claimReview!.id, ownerDecision: "pending", assessment: { classification: "single_source", sources: [{ evidenceId: evidence!.id, verificationStatus: "unverified" }] } }] });
+      const unverifiedClaimDecision = await fetch(`${base}/api/claim-reviews/${claimReview!.id}/decision`, {
+        method: "POST", headers, body: JSON.stringify({ decision: "supports", note: "No source inspection attestation." }),
+      });
+      expect(unverifiedClaimDecision.status).toBe(400);
+      const claimDecision = await fetch(`${base}/api/claim-reviews/${claimReview!.id}/decision`, {
+        method: "POST", headers, body: JSON.stringify({ decision: "supports", note: "Owner independently inspected the source and its provenance.", sourcesIndependentlyChecked: true }),
+      });
+      expect(claimDecision.status).toBe(200);
+      expect(await claimDecision.json()).toMatchObject({ factualTruthVerified: false, item: { ownerDecision: "supports", ownerSourcesIndependentlyChecked: true, reviewedBy: "owner-dashboard" } });
+      const replayDecision = await fetch(`${base}/api/claim-reviews/${claimReview!.id}/decision`, {
+        method: "POST", headers, body: JSON.stringify({ decision: "supports", note: "Replay must not overwrite the owner decision.", sourcesIndependentlyChecked: true }),
+      });
+      expect(replayDecision.status).toBe(409);
       const researchInitial = await fetch(`${base}/api/research`, { headers });
       expect(await researchInitial.json()).toMatchObject({ enabled: false, allowedHosts: [], factualVerificationPerformed: false });
       const invalidResearchConfig = await fetch(`${base}/api/config/research`, { method: "POST", headers, body: JSON.stringify({ enabled: true, allowedHosts: ["*.example.com"] }) });
