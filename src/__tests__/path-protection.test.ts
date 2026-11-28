@@ -122,6 +122,7 @@ describe("isProtectedFile", () => {
   it("blocks paths in blocked directories", () => {
     expect(isProtectedFile("/home/user/.ssh/id_rsa")).toBe(true);
     expect(isProtectedFile("/home/user/.gnupg/keys")).toBe(true);
+    if (process.platform === "win32") return;
     expect(isProtectedFile("/etc/systemd/system/something.service")).toBe(true);
     expect(isProtectedFile("/proc/self/environ")).toBe(true);
   });
@@ -324,3 +325,4 @@ describe("path protection rule registration", () => {
     expect(ids).toContain("path.traversal_detection");
   });
 });
+

@@ -7,6 +7,8 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { homedir } from "node:os";
+import path from "node:path";
 import { createBuiltinTools, loadInstalledTools, executeTool } from "../agent/tools.js";
 import {
   MockInferenceClient,
@@ -186,7 +188,7 @@ describe("write_file / edit_own_file protection parity", () => {
 
     for (const file of PROTECTED_FILES) {
       const result = await writeTool.execute(
-        { path: `/root/.automaton/${file}`, content: "malicious" },
+        { path: path.join(homedir(), ".automaton", file), content: "malicious" },
         ctx,
       );
       expect(result, `write_file should block ${file}`).toContain("Blocked");
@@ -196,7 +198,7 @@ describe("write_file / edit_own_file protection parity", () => {
   it("write_file allows non-protected files inside sandbox home", async () => {
     const writeTool = tools.find((t) => t.name === "write_file")!;
     const result = await writeTool.execute(
-      { path: "/root/test.txt", content: "safe content" },
+      { path: path.join(homedir(), "test.txt"), content: "safe content" },
       ctx,
     );
     expect(result).toContain("File written");
@@ -226,9 +228,9 @@ describe("write_file / edit_own_file protection parity", () => {
       { path: "project/file.txt", content: "safe content" },
       ctx,
     );
-    // Relative paths resolve against /root, so "project/file.txt" -> "/root/project/file.txt"
+    // Relative paths resolve against the current user's sandbox home.
     expect(result).toContain("File written");
-    expect(result).toContain("/root/project/file.txt");
+    expect(result).toContain(path.join(homedir(), "project", "file.txt"));
   });
 
   it("write_file allows tilde paths within sandbox home", async () => {
@@ -238,7 +240,7 @@ describe("write_file / edit_own_file protection parity", () => {
       ctx,
     );
     expect(result).toContain("File written");
-    expect(result).toContain("/root/.automaton/skills/test/SKILL.md");
+    expect(result).toContain(path.join(homedir(), ".automaton", "skills", "test", "SKILL.md"));
   });
 });
 
@@ -663,3 +665,4 @@ describe("package install inline validation", () => {
     expect(conway.execCalls.length).toBe(1);
   });
 });
+

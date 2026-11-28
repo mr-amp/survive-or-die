@@ -11,8 +11,10 @@ import { saveBusinessDeliverable } from "../economics/deliverables.js";
 describe("authenticated dashboard business workflow", () => {
   it("protects business data and records the owner experiment review without executing it", async () => {
     const priorHome = process.env.HOME;
+    const priorUserProfile = process.env.USERPROFILE;
     const home = mkdtempSync(join(tmpdir(), "sod-dashboard-economics-"));
     process.env.HOME = home;
+    process.env.USERPROFILE = home;
     const db = createDatabase(":memory:");
     let dashboard: { close(): void; getPort(): number } | undefined;
     try {
@@ -225,7 +227,10 @@ describe("authenticated dashboard business workflow", () => {
       db.close();
       if (priorHome === undefined) delete process.env.HOME;
       else process.env.HOME = priorHome;
+      if (priorUserProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = priorUserProfile;
       rmSync(home, { recursive: true, force: true });
     }
   });
 });
+

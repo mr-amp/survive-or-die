@@ -6,6 +6,7 @@
  */
 
 import nodePath from "node:path";
+import { homedir } from "node:os";
 import { ulid } from "ulid";
 import type {
   AutomatonTool,
@@ -27,8 +28,8 @@ const logger = createLogger("tools");
 
 // ─── Path Confinement ─────────────────────────────────────────
 // write_file is restricted to the sandbox home directory tree.
-// The sandbox home is /root for both local and remote execution.
-const SANDBOX_HOME = "/root";
+// Keep local writes inside the current user's home on Linux and Windows.
+const SANDBOX_HOME = nodePath.resolve(homedir());
 
 /**
  * Validate that a file path resolves to within the allowed root directory.
@@ -41,8 +42,10 @@ function confinePathToSandbox(filePath: string): string | { error: string } {
     : filePath;
   // Resolve to absolute (relative paths resolve against SANDBOX_HOME)
   const resolved = nodePath.resolve(SANDBOX_HOME, expanded);
-  // Ensure the resolved path is within the sandbox home
-  if (resolved !== SANDBOX_HOME && !resolved.startsWith(SANDBOX_HOME + "/")) {
+  // Use relative-path containment so separators and drive letters are handled
+  // correctly on both Windows and POSIX hosts.
+  const relative = nodePath.relative(SANDBOX_HOME, resolved);
+  if (relative === ".." || relative.startsWith(`..${nodePath.sep}`) || nodePath.isAbsolute(relative)) {
     return {
       error: `Blocked: write_file path "${filePath}" resolves to "${resolved}" which is outside the allowed directory (${SANDBOX_HOME}). Writes are confined to the sandbox home.`,
     };
@@ -3744,3 +3747,4 @@ export async function executeTool(
 function escapeShellArg(arg: string): string {
   return `'${arg.replace(/'/g, "'\\''")}'`;
 }
+
