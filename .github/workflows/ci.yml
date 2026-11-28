@@ -77,7 +77,11 @@ jobs:
           $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
           if ($config.localOnly -ne $true -or $config.localProfile -ne '16gb' -or $config.maxChildren -ne 1 -or $config.maxTokensPerTurn -ne 2048) { throw 'Installer did not apply the expected local 16GB profile.' }
           if (-not (Get-ChildItem -LiteralPath (Split-Path $configPath) -Filter 'automaton.json.bak.*' -File)) { throw 'Installer did not preserve a backup of the previous configuration.' }
-          Write-Host 'Synthetic local-only configuration and backup verified.'
+          & .\scripts\windows\install.ps1 -Profile 32gb -Model llama3.1:8b
+          if ($LASTEXITCODE -ne 0) { throw "Installer returned exit code $LASTEXITCODE for 32GB profile." }
+          $config = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Json
+          if ($config.localOnly -ne $true -or $config.localProfile -ne '32gb' -or $config.maxChildren -ne 2 -or $config.maxTokensPerTurn -ne 4096) { throw 'Installer did not apply the expected local 32GB profile.' }
+          Write-Host 'Synthetic local-only 16GB and 32GB profiles and configuration backups verified.'
       - name: TypeScript check
         run: pnpm run typecheck
       - name: Production build
@@ -128,3 +132,4 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --audit-level=high
+

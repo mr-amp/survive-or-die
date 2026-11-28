@@ -74,9 +74,9 @@ try {
     if ($config.localOnly -eq $true) {
       $backupPath = "$ConfigPath.bak.$(Get-Date -Format yyyyMMddHHmmss)"
       Copy-Item -Path $ConfigPath -Destination $backupPath
-      $config.localProfile = $Profile
-      $config.maxChildren = if ($Profile -eq "32gb") { 2 } else { 1 }
-      $config.maxTokensPerTurn = if ($Profile -eq "32gb") { 4096 } else { 2048 }
+      $config | Add-Member -NotePropertyName localProfile -NotePropertyValue $Profile -Force
+      $config | Add-Member -NotePropertyName maxChildren -NotePropertyValue $(if ($Profile -eq "32gb") { 2 } else { 1 }) -Force
+      $config | Add-Member -NotePropertyName maxTokensPerTurn -NotePropertyValue $(if ($Profile -eq "32gb") { 4096 } else { 2048 }) -Force
       $json = $config | ConvertTo-Json -Depth 100
       [System.IO.File]::WriteAllText($ConfigPath, $json, [System.Text.UTF8Encoding]::new($false))
       Write-Host "Updated local resource profile; previous config backed up to $backupPath."
@@ -93,3 +93,4 @@ Write-Host ""
 Write-Host "Setup finished. Start manually with:"
 Write-Host ('  powershell -ExecutionPolicy Bypass -File "' + $PSScriptRoot + '\run-agent.ps1"')
 Write-Host "Restart Ollama once so it reads the new resource settings."
+
