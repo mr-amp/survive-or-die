@@ -301,6 +301,75 @@ function safeJson(value: string): unknown {
   try { return JSON.parse(value); } catch { return null; }
 }
 
+function resourceHistoryPayload(db: AutomatonDatabase, requestedHours: string | null): Record<string, unknown> {
+  const hours = clampLimit(requestedHours, 24, 168);
+  if (!hasTable(db, "metric_snapshots")) return { hours, samples: [] };
+  const rows = db.raw.prepare(
+    `SELECT snapshot_at AS snapshotAt, metrics_json AS metricsJson
+     FROM metric_snapshots
+     WHERE snapshot_at >= datetime('now', ?)
+     ORDER BY snapshot_at DESC LIMIT 500`,
+  ).all(`-${hours} hours`) as Array<{ snapshotAt: string; metricsJson: string }>;
+  const samples = rows.reverse().map((row) => {
+    const metrics = safeJson(row.metricsJson);
+    const gauges = new Map<string, number>();
+    if (Array.isArray(metrics)) {
+      for (const entry of metrics) {
+        if (entry?.type === "gauge" && typeof entry.name === "string" && typeof entry.value === "number" && Number.isFinite(entry.value)) {
+          gauges.set(entry.name, entry.value);
+        }
+      }
+    }
+    return {
+      sampledAt: row.snapshotAt,
+      processRssBytes: gauges.get("process_rss_bytes") ?? null,
+      processHeapUsedBytes: gauges.get("process_heap_used_bytes") ?? null,
+      processCpuPercentOneCore: gauges.get("process_cpu_percent_one_core") ?? null,
+      availableMemoryBytes: gauges.get("system_memory_available_bytes") ?? null,
+      totalMemoryBytes: gauges.get("system_memory_total_bytes") ?? null,
+    };
+  });
+  return { hours, samples };
+}
+
+function taskHistoryPayload(db: AutomatonDatabase, requestedLimit: string | null): Record<string, unknown> {
+  const limit = clampLimit(requestedLimit, 50, 100);
+  if (!hasTable(db, "task_graph")) return { limit, items: [] };
+  const rows = db.raw.prepare(
+    `SELECT t.id, t.goal_id AS goalId, g.title AS goalTitle, t.title, t.status,
+            t.result, t.retry_count AS retryCount, t.max_retries AS maxRetries,
+            t.created_at AS createdAt, t.started_at AS startedAt, t.completed_at AS completedAt
+     FROM task_graph t LEFT JOIN goals g ON g.id = t.goal_id
+     WHERE t.status IN ('completed','failed','cancelled')
+     ORDER BY COALESCE(t.completed_at, t.started_at, t.created_at) DESC, t.id DESC
+     LIMIT ?`,
+  ).all(limit) as Array<Record<string, any>>;
+  return {
+    limit,
+    items: rows.map((row) => {
+      const result = safeJson(String(row.result ?? "")) as any;
+      return {
+        id: row.id,
+        goalId: row.goalId,
+        goalTitle: row.goalTitle ?? null,
+        title: row.title,
+        status: row.status,
+        retryCount: row.retryCount,
+        maxRetries: row.maxRetries,
+        createdAt: row.createdAt,
+        startedAt: row.startedAt,
+        completedAt: row.completedAt,
+        result: result && typeof result === "object" ? {
+          success: typeof result.success === "boolean" ? result.success : null,
+          output: typeof result.output === "string" ? result.output.slice(0, 1200) : "",
+          duration: Number.isFinite(result.duration) ? result.duration : null,
+          costCents: Number.isFinite(result.costCents) ? result.costCents : null,
+        } : null,
+      };
+    }),
+  };
+}
+
 function memoryPayload(db: AutomatonDatabase, search: string): Record<string, unknown> {
   const needle = `%${search.slice(0, 120)}%`;
   return {
@@ -387,7 +456,9 @@ const DASHBOARD_HTML = String.raw`<!doctype html>
 <div class="grid">
 <section class="card"><h2>Agent</h2><div id="agentState" class="value">Loading</div><div id="agentMeta" class="muted"></div><div id="controls" class="row" style="margin-top:12px"><button id="pause" class="primary">Pause</button><button id="resume">Resume</button><button id="stop" class="danger">Emergency stop</button></div></section>
 <section class="card"><h2>Objective and tasks</h2><div id="objective" class="value">No active goal</div><ul id="tasks" class="list"></ul></section>
+<section class="card"><h2>Recent task history</h2><ul id="taskHistory" class="list"></ul><small>Shows the latest completed, failed and cancelled tasks. Retryable attempts remain in the task queue until they reach a final state.</small></section>
 <section class="card"><h2>Local model and resources</h2><div id="model" class="muted"></div><div id="resources" class="value"></div><div class="row"><select id="modelSelect"></select><button id="saveModel">Set model</button><select id="profileSelect"><option value="16gb">16GB profile</option><option value="32gb">32GB profile</option></select><button id="saveProfile">Set profile</button></div><small>Configuration changes take effect after restarting the agent. Ollama cloud models are excluded.</small></section>
+<section class="card"><h2>Resource history (last 24 hours)</h2><ol id="resourceHistory" class="list"></ol><small>Samples come from scheduled heartbeat metrics, are retained for seven days, and may be empty until the first report.</small></section>
 <section class="card"><h2>Remote child agents</h2><ul id="children" class="list"></ul></section><section class="card"><h2>Local worker agents</h2><ul id="workers" class="list"></ul></section>
 <section class="card"><h2>Financial and survival record</h2><div id="finances" class="muted"></div><ul id="transactions" class="list"></ul></section>
 <section class="card wide"><h2>Owner approval queue</h2><div id="approvals" class="muted"></div><ul id="pendingApprovals" class="list"></ul><h3>Decision history</h3><ul id="approvalHistory" class="list"></ul><h3>Audit events</h3><ul id="approvalEvents" class="list"></ul><h3>Blocked attempts</h3><ul id="blockedActions" class="list"></ul></section>
@@ -408,7 +479,9 @@ function showError(message){byId("error").textContent=message||""}
 function addRows(id,items,title,body){const list=byId(id);list.replaceChildren();if(!items||!items.length){const li=document.createElement("li");li.className="item muted";li.textContent="Nothing recorded yet.";list.append(li);return}for(const item of items){const li=document.createElement("li");li.className="item";const strong=document.createElement("strong");strong.textContent=title(item);li.append(strong);const pre=document.createElement("pre");pre.textContent=body(item);li.append(pre);list.append(li)}}
 async function api(path,options={}){const response=await fetch(path,{...options,headers:{Authorization:"Bearer "+token,"Content-Type":"application/json",...(options.headers||{})}});const data=await response.json();if(!response.ok)throw new Error(data.error||"Request failed");return data}
 async function connect(){try{await api("/api/status");localStorage.setItem(tokenKey,token);byId("login").classList.add("hide");byId("app").classList.remove("hide");showError("");await refresh()}catch(error){showError(error.message||"Authentication failed.")}}
-async function refresh(){try{const data=await api("/api/status");const agent=data.agent||{};byId("agentState").textContent=agent.state+(agent.paused?" · paused":"");byId("agentMeta").textContent=(agent.name||"Automaton")+" · "+agent.turnCount+" turns · since "+(agent.startedAt||"unknown");const goal=data.objective;byId("objective").textContent=goal?goal.title:"No active goal";addRows("tasks",data.tasks||[],x=>x.title,x=>x.status+" · priority "+x.priority+" · retries "+x.retryCount+"/"+x.maxRetries+(x.next_attempt_at?" · retry after "+x.next_attempt_at:""));byId("model").textContent=(data.model.localOnly?"Local-only · ":"")+(data.model.inferenceModel||"no model")+" · "+data.model.profile+" · "+data.model.maxTokensPerTurn+" output tokens";const r=data.resources||{};byId("resources").textContent="Process RAM "+Math.round((r.processRssBytes||0)/1048576)+" MB · free system RAM "+Math.round((r.availableMemoryBytes||0)/1073741824)+" GB · CPU "+(r.processCpuPercentOneCore||0)+"%";const select=byId("profileSelect");select.value=data.model.profile||"16gb";const models=await api("/api/models");if(models.warning){byId("model").textContent+=" · Ollama unavailable: "+models.warning}const modelSelect=byId("modelSelect");modelSelect.replaceChildren();for(const name of models.models||[]){const option=document.createElement("option");option.value=name;option.textContent=name;modelSelect.append(option)}if(data.model.inferenceModel)modelSelect.value=data.model.inferenceModel;addRows("children",data.children||[],x=>x.name+" · "+x.status,x=>"created "+(x.createdAt||"unknown")+" · funded ledger "+x.fundedAmountCents+"¢");renderWorkers(data.localWorkers||[]);const finances=data.finances||{};byId("finances").textContent="Automatic transactions disabled · recorded transactions "+(finances.transactions||[]).length+" · recorded spend entries "+(finances.spend||[]).length+" · inference cost last 30 days is tracked below";addRows("transactions",finances.transactions||[],x=>x.type,x=>x.description+" · "+x.amountCents+"¢ · "+x.createdAt);const approval=await api("/api/approvals");renderApprovals(approval);addRows("blockedActions",approval.blockedActions||[],x=>x.tool_name+" · denied",x=>x.reason+" · "+x.created_at);const opportunities=await api("/api/opportunities");renderOpportunities(opportunities.items||[],opportunities.summary);const claimReviews=await api("/api/claim-reviews");renderClaimReviews(claimReviews.items||[]);const research=await api("/api/research");byId("researchEnabled").checked=research.enabled;byId("researchHosts").value=(research.allowedHosts||[]).join("\n");byId("researchState").textContent=research.enabled?"Enabled for exact allowlisted hosts only; factual verification is not performed.":"Disabled. No external research requests will be made.";addRows("researchHistory",research.items||[],x=>x.status+" · "+x.retrievedAt+" · "+x.host,x=>"Area: "+x.researchArea+" · "+x.title+" · HTTP "+x.httpStatus+" · "+(x.errorCode||"retrieved; facts not verified")+"\n"+x.excerpt);const experiments=await api("/api/experiments");renderExperiments(experiments.items||[]);const deliverables=await api("/api/deliverables");renderDeliverables(deliverables.items||[]);const proposals=await api("/api/self-improvements");renderSelfImprovements(proposals.items||[]);const isolation=await api("/api/self-improvements/isolation-readiness");renderIsolationReadiness(isolation);addRows("activity",data.activity||[],x=>x.timestamp+" · "+x.state,x=>x.summary+"\nActions: "+(x.actions||[]).map(y=>y.name+(y.error?" (failed)":"")).join(", "));byId("updated").textContent="Updated "+new Date().toLocaleTimeString();await loadMemory()}catch(error){if(error.message.includes("Unauthorized")){localStorage.removeItem(tokenKey);byId("app").classList.add("hide");byId("login").classList.remove("hide")}showError(error.message||"Dashboard refresh failed.")}}
+async function refresh(){try{const data=await api("/api/status");const agent=data.agent||{};byId("agentState").textContent=agent.state+(agent.paused?" · paused":"");byId("agentMeta").textContent=(agent.name||"Automaton")+" · "+agent.turnCount+" turns · since "+(agent.startedAt||"unknown");const goal=data.objective;byId("objective").textContent=goal?goal.title:"No active goal";addRows("tasks",data.tasks||[],x=>x.title,x=>x.status+" · priority "+x.priority+" · retries "+x.retryCount+"/"+x.maxRetries+(x.next_attempt_at?" · retry after "+x.next_attempt_at:""));byId("model").textContent=(data.model.localOnly?"Local-only · ":"")+(data.model.inferenceModel||"no model")+" · "+data.model.profile+" · "+data.model.maxTokensPerTurn+" output tokens";const r=data.resources||{};byId("resources").textContent="Process RAM "+Math.round((r.processRssBytes||0)/1048576)+" MB · free system RAM "+Math.round((r.availableMemoryBytes||0)/1073741824)+" GB · CPU "+(r.processCpuPercentOneCore||0)+"%";const history=await api("/api/resources/history?hours=24");renderResourceHistory(history);const taskHistory=await api("/api/tasks/history?limit=50");renderTaskHistory(taskHistory);const select=byId("profileSelect");select.value=data.model.profile||"16gb";const models=await api("/api/models");if(models.warning){byId("model").textContent+=" · Ollama unavailable: "+models.warning}const modelSelect=byId("modelSelect");modelSelect.replaceChildren();for(const name of models.models||[]){const option=document.createElement("option");option.value=name;option.textContent=name;modelSelect.append(option)}if(data.model.inferenceModel)modelSelect.value=data.model.inferenceModel;addRows("children",data.children||[],x=>x.name+" · "+x.status,x=>"created "+(x.createdAt||"unknown")+" · funded ledger "+x.fundedAmountCents+"¢");renderWorkers(data.localWorkers||[]);const finances=data.finances||{};byId("finances").textContent="Automatic transactions disabled · recorded transactions "+(finances.transactions||[]).length+" · recorded spend entries "+(finances.spend||[]).length+" · inference cost last 30 days is tracked below";addRows("transactions",finances.transactions||[],x=>x.type,x=>x.description+" · "+x.amountCents+"¢ · "+x.createdAt);const approval=await api("/api/approvals");renderApprovals(approval);addRows("blockedActions",approval.blockedActions||[],x=>x.tool_name+" · denied",x=>x.reason+" · "+x.created_at);const opportunities=await api("/api/opportunities");renderOpportunities(opportunities.items||[],opportunities.summary);const claimReviews=await api("/api/claim-reviews");renderClaimReviews(claimReviews.items||[]);const research=await api("/api/research");byId("researchEnabled").checked=research.enabled;byId("researchHosts").value=(research.allowedHosts||[]).join("\n");byId("researchState").textContent=research.enabled?"Enabled for exact allowlisted hosts only; factual verification is not performed.":"Disabled. No external research requests will be made.";addRows("researchHistory",research.items||[],x=>x.status+" · "+x.retrievedAt+" · "+x.host,x=>"Area: "+x.researchArea+" · "+x.title+" · HTTP "+x.httpStatus+" · "+(x.errorCode||"retrieved; facts not verified")+"\n"+x.excerpt);const experiments=await api("/api/experiments");renderExperiments(experiments.items||[]);const deliverables=await api("/api/deliverables");renderDeliverables(deliverables.items||[]);const proposals=await api("/api/self-improvements");renderSelfImprovements(proposals.items||[]);const isolation=await api("/api/self-improvements/isolation-readiness");renderIsolationReadiness(isolation);addRows("activity",data.activity||[],x=>x.timestamp+" · "+x.state,x=>x.summary+"\nActions: "+(x.actions||[]).map(y=>y.name+(y.error?" (failed)":"")).join(", "));byId("updated").textContent="Updated "+new Date().toLocaleTimeString();await loadMemory()}catch(error){if(error.message.includes("Unauthorized")){localStorage.removeItem(tokenKey);byId("app").classList.add("hide");byId("login").classList.remove("hide")}showError(error.message||"Dashboard refresh failed.")}}
+function renderTaskHistory(data){addRows("taskHistory",data.items||[],task=>task.title+" · "+task.status,task=>(task.goalTitle?"Goal: "+task.goalTitle+" · ":"")+(task.completedAt||task.startedAt||task.createdAt)+" · retries "+task.retryCount+"/"+task.maxRetries+"\n"+(task.result?.output||"No task result was recorded."))}
+function renderResourceHistory(data){const list=byId("resourceHistory");list.replaceChildren();const samples=(data.samples||[]).slice(-24).reverse();if(!samples.length){const item=document.createElement("li");item.className="item muted";item.textContent="No scheduled resource samples have been recorded yet.";list.append(item);return}for(const sample of samples){const item=document.createElement("li");item.className="item";const mb=(bytes)=>bytes===null||bytes===undefined?"unknown":Math.round(bytes/1048576)+" MB";item.textContent=sample.sampledAt+" · process RAM "+mb(sample.processRssBytes)+" · free system RAM "+mb(sample.availableMemoryBytes)+" / "+mb(sample.totalMemoryBytes)+" · CPU "+(sample.processCpuPercentOneCore??"unknown")+"%";list.append(item)}}
 function renderIsolationReadiness(payload){const report=payload?.report;if(!report){byId("isolationReadiness").textContent="No owner readiness report recorded. On Windows, run scripts\\windows\\inspect-self-mod-isolation.ps1. Candidate execution remains disabled.";return}byId("isolationReadiness").textContent="Detected "+report.detectedAt+" · "+report.operatingSystem+" ("+report.edition+", build "+report.build+")\nOwner review readiness: "+(report.readyForOwnerReview?"prerequisites detected":"blocked or incomplete")+". Candidate execution enabled: no.\nMemory: "+Math.round((report.hostMemoryBytes||0)/1073741824)+" GB · processors: "+(report.logicalProcessorCount||0)+" · BIOS virtualization: "+report.firmwareVirtualizationEnabled+" · Sandbox feature: "+report.sandboxFeatureState+"\nBlockers: "+((report.blockers||[]).join(", ")||"none detected")+"\nLimits: "+JSON.stringify(report.limits||{})+"\n"+(report.note||"Detection data is owner-supplied and not a security attestation.");}
 function renderSelfImprovements(items){
  const list=byId("selfImprovements");list.replaceChildren();
@@ -483,6 +556,14 @@ export function startDashboardServer(options: DashboardServerOptions): Dashboard
     try {
       if (request.method === "GET" && requestUrl.pathname === "/api/status") {
         sendJson(response, 200, statusPayload(options.db, options.config));
+        return;
+      }
+      if (request.method === "GET" && requestUrl.pathname === "/api/resources/history") {
+        sendJson(response, 200, resourceHistoryPayload(options.db, requestUrl.searchParams.get("hours")));
+        return;
+      }
+      if (request.method === "GET" && requestUrl.pathname === "/api/tasks/history") {
+        sendJson(response, 200, taskHistoryPayload(options.db, requestUrl.searchParams.get("limit")));
         return;
       }
       if (request.method === "GET" && requestUrl.pathname === "/api/memory") {

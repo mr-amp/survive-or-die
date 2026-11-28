@@ -2,6 +2,17 @@
 
 Checkpoint for `work/local-first-windows`. This file records repository evidence; it does not certify a Windows installation or continuous operation.
 
+## Mission 17 — remote readiness implementation (28 November 2026)
+
+- Recovered a complete Git checkout and independently verified `work/local-first-windows` at `625fd4f7ecb0cacd0870460d3a96ace75702d4ab`; the repository was clean before changes. `main` remains at `d8f816881fd24b6f5e3d616e59edec387a447667`.
+- Installed the locked dependency graph with Node 24.22.3 and pnpm 10.28.1. The initial TypeScript check passed, the production build passed, and full plus production dependency audits reported no known vulnerabilities.
+- Added a private, bounded resource-history API and owner dashboard panel using the existing seven-day heartbeat metric store. The endpoint clamps history to 1–168 hours, returns at most 500 samples, filters to finite numeric resource gauges, and remains behind the dashboard bearer-token check. The dashboard displays the latest 24 samples using text nodes.
+- Added a bounded `/api/tasks/history` endpoint and dashboard view for the latest completed, failed and cancelled task results, including goal, retry count and a capped output summary. Retryable attempts remain in the persistent queue instead of being misreported as final task history.
+- Added authenticated API coverage for unauthenticated rejection, limit clamping, task result fields and resource RAM/CPU fields. The focused dashboard economics integration test passed (1 file, 1 test), including the dashboard's inline JavaScript syntax check.
+- Final remote verification on Node 24.22.3 and pnpm 10.28.1: typecheck, production build, and all 13 bounded offline test groups passed (76 files, 1,702 tests, zero failed or timed out); focused security (124) and financial (38) filters passed. Full and production dependency audits both reported no known vulnerabilities. PowerShell and Windows Actions execution remain unverified.
+- No existing completion score changes are claimed: the history display adds visibility, while target-device resource behavior still requires physical measurement. The Windows runner, candidate-code isolation, live inference and hardware acceptance remain outstanding.
+- Actions API inspection found zero workflow runs on the branch. The checked-in workflow has push, pull-request and manual triggers. This environment exposes no supported dispatch operation or Actions settings endpoint; a future development-branch push can test whether push-triggered Actions are enabled. No Windows runner result is claimed.
+
 ## Mission 16 — Windows verification preparation (26 November 2026)
 
 - Verified the live branch at `e3c663198a82d95194e07a90b042d04ffe3b9403`, based on the Mission 15 checkpoint. The public repository's standard GitHub-hosted Windows runners are currently documented as free for public repositories; the GitHub API currently reports zero workflow runs and no commit status checks for the new checkpoint. The workflow is therefore prepared but has not executed.

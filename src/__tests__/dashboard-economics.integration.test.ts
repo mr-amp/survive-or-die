@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { createDatabase } from "../state/database.js";
+import { createDatabase, metricsInsertSnapshot } from "../state/database.js";
 import { assessBusinessClaim, createBusinessOpportunity, proposeBusinessExperiment, recordBusinessEvidence, reviewBusinessExperiment, transitionBusinessOpportunity } from "../economics/opportunities.js";
 import { createTestConfig } from "./mocks.js";
 import { createSelfImprovementProposal } from "../self-mod/proposals.js";
@@ -29,6 +29,28 @@ describe("authenticated dashboard business workflow", () => {
       const token = readFileSync(tokenPath, "utf8").trim();
       const base = `http://127.0.0.1:${dashboard.getPort()}`;
       await new Promise((resolve) => setTimeout(resolve, 25));
+      const sampledAt = new Date().toISOString();
+      metricsInsertSnapshot(db.raw, {
+        id: "resource-history-test",
+        snapshotAt: sampledAt,
+        metricsJson: JSON.stringify([
+          { name: "process_rss_bytes", type: "gauge", value: 128 * 1024 ** 2 },
+          { name: "process_heap_used_bytes", type: "gauge", value: 64 * 1024 ** 2 },
+          { name: "process_cpu_percent_one_core", type: "gauge", value: 12.5 },
+          { name: "system_memory_available_bytes", type: "gauge", value: 4 * 1024 ** 3 },
+          { name: "system_memory_total_bytes", type: "gauge", value: 16 * 1024 ** 3 },
+        ]),
+        alertsJson: "[]",
+        createdAt: sampledAt,
+      });
+      db.raw.prepare("INSERT INTO goals (id, title, description, status, created_at) VALUES (?, ?, ?, 'completed', ?)")
+        .run("history-goal", "Resource and task history", "Integration test goal", sampledAt);
+      db.raw.prepare(`INSERT INTO task_graph
+        (id, goal_id, title, description, status, result, retry_count, max_retries, created_at, completed_at)
+        VALUES (?, ?, ?, ?, 'completed', ?, 1, 3, ?, ?)`)
+        .run("history-task", "history-goal", "Completed sample task", "Task history test", JSON.stringify({
+          success: true, output: "Completed safely", duration: 42, costCents: 0,
+        }), sampledAt, sampledAt);
       const logsPath = join(home, ".automaton", "logs");
       mkdirSync(logsPath, { recursive: true });
       writeFileSync(join(logsPath, "self-mod-isolation-readiness.json"), JSON.stringify({
@@ -64,6 +86,31 @@ describe("authenticated dashboard business workflow", () => {
       const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
       expect((await fetch(`${base}/api/research`)).status).toBe(401);
       expect((await fetch(`${base}/api/claim-reviews`)).status).toBe(401);
+      expect((await fetch(`${base}/api/resources/history`)).status).toBe(401);
+      const resourceHistory = await fetch(`${base}/api/resources/history?hours=999`, { headers });
+      expect(resourceHistory.status).toBe(200);
+      expect(await resourceHistory.json()).toMatchObject({
+        hours: 168,
+        samples: [{
+          sampledAt,
+          processRssBytes: 128 * 1024 ** 2,
+          processHeapUsedBytes: 64 * 1024 ** 2,
+          processCpuPercentOneCore: 12.5,
+          availableMemoryBytes: 4 * 1024 ** 3,
+          totalMemoryBytes: 16 * 1024 ** 3,
+        }],
+      });
+      expect((await fetch(`${base}/api/tasks/history`)).status).toBe(401);
+      const taskHistory = await fetch(`${base}/api/tasks/history?limit=999`, { headers });
+      expect(taskHistory.status).toBe(200);
+      expect(await taskHistory.json()).toMatchObject({
+        limit: 100,
+        items: [{
+          id: "history-task", title: "Completed sample task", status: "completed",
+          retryCount: 1, maxRetries: 3, goalTitle: "Resource and task history",
+          result: { success: true, output: "Completed safely", duration: 42, costCents: 0 },
+        }],
+      });
       const claimReviews = await fetch(`${base}/api/claim-reviews`, { headers });
       expect(await claimReviews.json()).toMatchObject({ factualTruthVerified: false, items: [{ id: claimReview!.id, ownerDecision: "pending", assessment: { classification: "single_source", sources: [{ evidenceId: evidence!.id, verificationStatus: "unverified" }] } }] });
       const unverifiedClaimDecision = await fetch(`${base}/api/claim-reviews/${claimReview!.id}/decision`, {
